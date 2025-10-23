@@ -7,8 +7,8 @@ export class ConfigManager {
   private configPath: string;
   private globalConfigPath: string;
 
-  constructor(dataDirectory?: string) {
-    this.globalConfigPath = path.join(os.homedir(), '.clockin', 'currentConfig.json');
+  constructor(dataDirectory?: string, testGlobalConfigPath?: string) {
+    this.globalConfigPath = testGlobalConfigPath || path.join(os.homedir(), '.clockin', 'currentConfig.json');
 
     if (dataDirectory) {
       this.configPath = path.join(dataDirectory, '.clockin', 'config.json');
@@ -63,8 +63,8 @@ export class ConfigManager {
       const globalConfig = JSON.parse(data);
       return globalConfig.currentDataDirectory;
     } catch {
-      // No global config yet, return default
-      return path.join(os.homedir(), 'clockin-data');
+      // No global config yet, return null instead of default to avoid test pollution
+      return null;
     }
   }
 

@@ -126,8 +126,8 @@ export class SetupWizard {
 
   private async collectDataDirectory(): Promise<string> {
     const configManager = new ConfigManager();
-    const defaultPath =
-      (await configManager.getCurrentDataDirectory()) || path.join(os.homedir(), 'clockin-data');
+    const currentDataDir = await configManager.getCurrentDataDirectory();
+    const defaultPath = currentDataDir || path.join(os.homedir(), 'clockin-data');
 
     const { useDefault } = await inquirer.prompt([
       {

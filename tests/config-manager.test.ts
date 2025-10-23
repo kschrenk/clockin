@@ -3,24 +3,34 @@ import { ConfigManager } from '../src/config-manager.js';
 import { Config } from '../src/types.js';
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
 
 describe('ConfigManager', () => {
   let configManager: ConfigManager;
-  let testConfigPath: string;
+  let testGlobalConfigDir: string;
+  let testDataDir: string;
 
-  beforeEach(() => {
-    configManager = new ConfigManager();
-    testConfigPath = path.join(os.homedir(), '.clockin', 'config.json');
+  beforeEach(async () => {
+    // Use completely isolated test directories
+    testGlobalConfigDir = '/tmp/test-clockin-global';
+    testDataDir = '/tmp/test-clockin-data';
+
+    // Clean up before each test
+    try {
+      await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
+      await fs.rm(testDataDir, { recursive: true, force: true });
+    } catch {}
+
+    // Create a ConfigManager instance with test directories
+    const testGlobalConfigPath = path.join(testGlobalConfigDir, 'currentConfig.json');
+    configManager = new ConfigManager(undefined, testGlobalConfigPath);
   });
 
   afterEach(async () => {
-    // Clean up test config file
+    // Clean up test directories
     try {
-      await fs.unlink(testConfigPath);
-    } catch {
-      // File doesn't exist, which is fine
-    }
+      await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
+      await fs.rm(testDataDir, { recursive: true, force: true });
+    } catch {}
   });
 
   it('should create default config', () => {
@@ -46,7 +56,7 @@ describe('ConfigManager', () => {
         { day: 'saturday', isWorkingDay: false },
         { day: 'sunday', isWorkingDay: false },
       ],
-      dataDirectory: '/tmp/test-clockin',
+      dataDirectory: testDataDir,
       setupCompleted: true,
     };
 
