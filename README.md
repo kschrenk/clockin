@@ -4,7 +4,7 @@ A colorful, user-friendly CLI to track working hours and vacation days locally u
 
 ## Features
 
-- Interactive setup wizard (like `create-next-app`)
+- Interactive setup wizard
 - Start, pause, resume, and stop live tracking sessions
 - Dynamic timer view with expected end time
 - Data stored locally as CSV (easy to inspect & back up)
