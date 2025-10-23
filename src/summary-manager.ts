@@ -3,8 +3,15 @@ import Table from 'cli-table3';
 import open from 'open';
 import fs from 'fs/promises';
 import { createObjectCsvWriter } from 'csv-writer';
-import { format, startOfWeek, endOfWeek, isWithinInterval, parseISO, differenceInMilliseconds } from 'date-fns';
-import { Config, TimeEntry, SummaryData } from './types.js';
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  isWithinInterval,
+  parseISO,
+  differenceInMilliseconds,
+} from 'date-fns';
+import { Config, SummaryData } from './types.js';
 import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
 
@@ -48,12 +55,16 @@ export class SummaryManager {
     const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
     const weekEnd = endOfWeek(now, { weekStartsOn: 1 }); // Sunday
 
-    const weeklyEntries = timeEntries.filter(entry => {
+    const weeklyEntries = timeEntries.filter((entry) => {
       const entryDate = parseISO(entry.date);
       return isWithinInterval(entryDate, { start: weekStart, end: weekEnd });
     });
 
-    console.log(chalk.blue.bold(`\n📅 Weekly Summary (${format(weekStart, 'MMM do')} - ${format(weekEnd, 'MMM do, yyyy')})\n`));
+    console.log(
+      chalk.blue.bold(
+        `\n📅 Weekly Summary (${format(weekStart, 'MMM do')} - ${format(weekEnd, 'MMM do, yyyy')})\n`
+      )
+    );
 
     if (weeklyEntries.length === 0) {
       console.log(chalk.yellow('No time entries found for this week.'));
@@ -73,7 +84,7 @@ export class SummaryManager {
 
     let totalWeeklyHours = 0;
 
-    weeklyEntries.forEach(entry => {
+    weeklyEntries.forEach((entry) => {
       if (entry.endTime) {
         const startTime = new Date(entry.startTime);
         const endTime = new Date(entry.endTime);
@@ -152,7 +163,7 @@ export class SummaryManager {
     let totalHoursWorked = 0;
     let currentWeekHours = 0;
 
-    timeEntries.forEach(entry => {
+    timeEntries.forEach((entry) => {
       if (entry.endTime) {
         const startTime = new Date(entry.startTime);
         const endTime = new Date(entry.endTime);

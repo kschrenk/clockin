@@ -77,7 +77,7 @@ export class ConfigManager {
     }
 
     const globalConfig = {
-      currentDataDirectory: dataDirectory
+      currentDataDirectory: dataDirectory,
     };
 
     await fs.writeFile(this.globalConfigPath, JSON.stringify(globalConfig, null, 2), 'utf-8');
@@ -92,41 +92,6 @@ export class ConfigManager {
     await this.ensureConfigDirectory();
     const data = JSON.stringify(config, null, 2);
     await fs.writeFile(this.configPath, data, 'utf-8');
-  }
-
-  async migrateConfig(dataDirectory: string): Promise<void> {
-    // Try to load from old location first
-    const oldConfigPath = path.join(os.homedir(), '.clockin', 'config.json');
-    try {
-      const data = await fs.readFile(oldConfigPath, 'utf-8');
-      const config = JSON.parse(data) as Config;
-
-      // Save to new location in .clockin subdirectory
-      this.configPath = path.join(dataDirectory, '.clockin', 'config.json');
-      await this.ensureConfigDirectory();
-      await fs.writeFile(this.configPath, data, 'utf-8');
-
-      // Remove old config
-      await fs.unlink(oldConfigPath);
-
-      console.log(`✅ Migrated config to ${this.configPath}`);
-    } catch {
-      // No old config to migrate
-    }
-  }
-
-  async loadConfigFromDataDirectory(dataDirectory: string): Promise<Config | null> {
-    this.configPath = path.join(dataDirectory, '.clockin', 'config.json');
-    return this.loadConfig();
-  }
-
-  async configExists(): Promise<boolean> {
-    try {
-      await fs.access(this.configPath);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   getDefaultConfig(): Partial<Config> {

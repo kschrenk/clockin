@@ -1,0 +1,28 @@
+# Ignore build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Coverage reports
+coverage/
+
+# Lock files (keep formatting stable)
+pnpm-lock.yaml
+
+# Generated type declarations
+*.d.ts
+
+# Git / VCS directories
+.git/
+
+# Husky scripts
+.husky/
+
+# CSV data (not part of source formatting)
+*.csv
+
+# Session and runtime artifacts
+current-session.json
+

@@ -19,11 +19,10 @@ async function ensureSetup() {
   let config = await configManager.loadConfig();
 
   if (!config || !config.setupCompleted) {
-    console.log(chalk.yellow('⚠️  Clockin is not set up yet. Let\'s get started!'));
+    console.log(chalk.yellow("⚠️  Clockin is not set up yet. Let's get started!"));
     const setupWizard = new SetupWizard();
     config = await setupWizard.runSetup();
   }
-
 
   return config;
 }
@@ -36,12 +35,11 @@ program
 program
   .command('start')
   .description('Start tracking time')
-  .option('-d, --description <description>', 'Add a description for this work session')
-  .action(async (options) => {
+  .action(async () => {
     try {
       const config = await ensureSetup();
       const timeTracker = new TimeTracker(config);
-      await timeTracker.startTracking(options.description);
+      await timeTracker.startTracking();
     } catch (error) {
       console.log(chalk.red('❌ Error starting time tracking:'), error);
     }
@@ -108,9 +106,7 @@ program
     }
   });
 
-const vacationCommand = program
-  .command('vacation')
-  .description('Manage vacation days');
+const vacationCommand = program.command('vacation').description('Manage vacation days');
 
 vacationCommand
   .command('add <days> [start_date]')
@@ -165,12 +161,14 @@ program
     try {
       if (!options.force) {
         const inquirer = (await import('inquirer')).default;
-        const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
-          name: 'confirm',
-          message: 'This will delete all configuration and data. Are you sure?',
-          default: false
-        }]);
+        const { confirm } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'confirm',
+            message: 'This will delete all configuration and data. Are you sure?',
+            default: false,
+          },
+        ]);
 
         if (!confirm) {
           console.log(chalk.yellow('Reset cancelled.'));
@@ -238,8 +236,8 @@ program
       });
 
       const workingDayNames = config.workingDays
-        .filter(day => day.isWorkingDay)
-        .map(day => day.day.charAt(0).toUpperCase() + day.day.slice(1))
+        .filter((day) => day.isWorkingDay)
+        .map((day) => day.day.charAt(0).toUpperCase() + day.day.slice(1))
         .join(', ');
 
       table.push(

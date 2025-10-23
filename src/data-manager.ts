@@ -46,7 +46,10 @@ export class DataManager {
               date: data.date || data.Date,
               startTime: data.startTime || data['Start Time'],
               endTime: data.endTime || data['End Time'] || undefined,
-              pauseTime: data.pauseTime || data['Pause Time (minutes)'] ? parseInt((data.pauseTime || data['Pause Time (minutes)'] || '0'), 10) : undefined,
+              pauseTime:
+                data.pauseTime || data['Pause Time (minutes)']
+                  ? parseInt(data.pauseTime || data['Pause Time (minutes)'] || '0', 10)
+                  : undefined,
               type: (data.type || data.Type) as TimeEntry['type'],
               description: data.description || data.Description || undefined,
             };

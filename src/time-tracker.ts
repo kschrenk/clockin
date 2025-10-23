@@ -1,6 +1,5 @@
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
 import chalk from 'chalk';
 import { format, addMinutes } from 'date-fns';
 import { Config, TimeEntry, WorkSession } from './types.js';
@@ -17,11 +16,13 @@ export class TimeTracker {
     this.sessionPath = path.join(config.dataDirectory, '.clockin', 'current-session.json');
   }
 
-  async startTracking(description?: string): Promise<void> {
+  async startTracking(): Promise<void> {
     const existingSession = await this.getCurrentSession();
     if (existingSession) {
       console.log(chalk.yellow('⚠️  A tracking session is already active!'));
-      console.log(chalk.gray('Use "clockin stop" to end the current session or "clockin pause" to pause it.'));
+      console.log(
+        chalk.gray('Use "clockin stop" to end the current session or "clockin pause" to pause it.')
+      );
       return;
     }
 
@@ -127,7 +128,7 @@ export class TimeTracker {
 
     const todaysEntries = await this.dataManager.loadTimeEntries();
     const todaysCompletedWork = todaysEntries
-      .filter(entry => entry.date === today && entry.endTime)
+      .filter((entry) => entry.date === today && entry.endTime)
       .reduce((total, entry) => {
         const start = new Date(entry.startTime);
         const end = new Date(entry.endTime!);
@@ -144,7 +145,7 @@ export class TimeTracker {
       let elapsedMs = now.getTime() - session.startTime.getTime() - session.pausedTime;
 
       if (session.isPaused && session.pauseStartTime) {
-        elapsedMs -= (now.getTime() - session.pauseStartTime.getTime());
+        elapsedMs -= now.getTime() - session.pauseStartTime.getTime();
       }
 
       const currentDate = format(now, 'EEEE, MMMM do, yyyy');
@@ -160,17 +161,30 @@ export class TimeTracker {
       const remainingWorkMs = Math.max(0, dailyHoursMs - todaysCompletedWork);
 
       // Expected end time = current session start + remaining work + current session pauses
-      const expectedEndTime = addMinutes(session.startTime, (remainingWorkMs + session.pausedTime) / 60000);
+      const expectedEndTime = addMinutes(
+        session.startTime,
+        (remainingWorkMs + session.pausedTime) / 60000
+      );
       const endTime = format(expectedEndTime, 'HH:mm:ss');
 
       console.log(chalk.blue.bold(`📅 ${currentDate}`));
-      console.log(chalk.green(`🕐 Started: ${startTime} | ⏱️  Session: ${elapsedTime} | 📊 Today's Total: ${todaysTotal}`));
-      console.log(chalk.cyan(`🎯 Expected End: ${endTime} | 🎯 Daily Target: ${this.formatDuration(dailyHoursMs)}`));
+      console.log(
+        chalk.green(
+          `🕐 Started: ${startTime} | ⏱️  Session: ${elapsedTime} | 📊 Today's Total: ${todaysTotal}`
+        )
+      );
+      console.log(
+        chalk.cyan(
+          `🎯 Expected End: ${endTime} | 🎯 Daily Target: ${this.formatDuration(dailyHoursMs)}`
+        )
+      );
 
       if (session.isPaused) {
         console.log(chalk.yellow('⏸️  PAUSED - Use "clockin resume" to continue tracking'));
       } else {
-        console.log(chalk.gray('Use Ctrl+C to exit timer view, then "clockin stop" to finish tracking'));
+        console.log(
+          chalk.gray('Use Ctrl+C to exit timer view, then "clockin stop" to finish tracking')
+        );
       }
     };
 
@@ -231,7 +245,7 @@ export class TimeTracker {
   }
 
   private getWorkingDaysCount(): number {
-    return this.config.workingDays.filter(day => day.isWorkingDay).length;
+    return this.config.workingDays.filter((day) => day.isWorkingDay).length;
   }
 
   private generateId(): string {

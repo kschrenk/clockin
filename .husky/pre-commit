@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+
+# Check formatting
+pnpm format:check || { echo "❌ Prettier formatting issues. Run 'pnpm format'"; exit 1; }
+
+# Lint
+pnpm lint || { echo "❌ Lint errors. Run 'pnpm lint:fix'"; exit 1; }
+
+# Run tests (fast feedback)
+pnpm test || { echo "❌ Tests failed"; exit 1; }
+
+echo "✅ All checks passed. Proceeding with commit."

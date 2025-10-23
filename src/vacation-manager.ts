@@ -45,7 +45,9 @@ export class VacationManager {
       // Need one additional working day for the partial portion
       const fractionalDayDate = fullDays === 0 ? firstWorkingDay : this.findNextWorkingDay(cursor);
       if (!fractionalDayDate) {
-        console.log(chalk.red('\u274c Could not find a working day for the fractional part of the vacation.'));
+        console.log(
+          chalk.red('\u274c Could not find a working day for the fractional part of the vacation.')
+        );
         return;
       }
       endDate = fractionalDayDate;
@@ -70,7 +72,11 @@ export class VacationManager {
 
     console.log(chalk.green('\ud83c\udfd6\ufe0f  Vacation added successfully!'));
     if (fullDays > 0 || remainder > 0) {
-      console.log(chalk.cyan(`Dates: ${format(firstWorkingDay, 'MMM do')} - ${format(endDate, 'MMM do, yyyy')}`));
+      console.log(
+        chalk.cyan(
+          `Dates: ${format(firstWorkingDay, 'MMM do')} - ${format(endDate, 'MMM do, yyyy')}`
+        )
+      );
     } else {
       console.log(chalk.cyan(`Date: ${format(firstWorkingDay, 'MMM do, yyyy')}`));
     }
@@ -79,7 +85,8 @@ export class VacationManager {
 
   private findNextWorkingDay(date: Date): Date | null {
     let cursor = new Date(date);
-    for (let i = 0; i < 14; i++) { // look ahead two weeks safeguard
+    for (let i = 0; i < 14; i++) {
+      // look ahead two weeks safeguard
       if (this.isWorkingDay(cursor)) return cursor;
       cursor = addDays(cursor, 1);
     }
@@ -113,24 +120,10 @@ export class VacationManager {
     await this.dataManager.saveVacationEntry(vacationEntry);
 
     console.log(chalk.green('🏖️  Vacation range added successfully!'));
-    console.log(chalk.cyan(`Date range: ${format(start, 'MMM do')} - ${format(end, 'MMM do, yyyy')}`));
+    console.log(
+      chalk.cyan(`Date range: ${format(start, 'MMM do')} - ${format(end, 'MMM do, yyyy')}`)
+    );
     console.log(chalk.cyan(`Working days: ${workingDays.length}`));
-  }
-
-  private calculateWorkingDays(startDate: Date, requestedDays: number): Date[] {
-    const workingDays: Date[] = [];
-    let currentDate = new Date(startDate);
-    let daysAdded = 0;
-
-    while (daysAdded < requestedDays) {
-      if (this.isWorkingDay(currentDate)) {
-        workingDays.push(new Date(currentDate));
-        daysAdded++;
-      }
-      currentDate = addDays(currentDate, 1);
-    }
-
-    return workingDays;
   }
 
   private calculateWorkingDaysInRange(startDate: Date, endDate: Date): Date[] {
@@ -149,7 +142,7 @@ export class VacationManager {
 
   private isWorkingDay(date: Date): boolean {
     const dayName = format(date, 'EEEE').toLowerCase();
-    const workingDay = this.config.workingDays.find(day => day.day === dayName);
+    const workingDay = this.config.workingDays.find((day) => day.day === dayName);
     return workingDay?.isWorkingDay ?? false;
   }
 
