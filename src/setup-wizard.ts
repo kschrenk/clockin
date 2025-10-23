@@ -127,19 +127,27 @@ export class SetupWizard {
   private async collectDataDirectory(): Promise<string> {
     const configManager = new ConfigManager();
     const currentDataDir = await configManager.getCurrentDataDirectory();
-    const defaultPath = currentDataDir || path.join(os.homedir(), 'clockin-data');
+    const actualDefault = path.join(os.homedir(), 'clockin-data');
+
+    // If there's a current data directory, offer it as an option, otherwise use actual default
+    const suggestedPath = currentDataDir || actualDefault;
+    const isCurrentConfig = currentDataDir !== null;
+
+    const message = isCurrentConfig
+      ? `Keep current data directory (${suggestedPath})?`
+      : `Store data in default directory (${suggestedPath})?`;
 
     const { useDefault } = await inquirer.prompt([
       {
         type: 'confirm',
         name: 'useDefault',
-        message: `Store data in default directory (${defaultPath})?`,
+        message: message,
         default: true,
       },
     ]);
 
     if (useDefault) {
-      return defaultPath;
+      return suggestedPath;
     }
 
     const { customPath } = await inquirer.prompt([
@@ -147,7 +155,7 @@ export class SetupWizard {
         type: 'input',
         name: 'customPath',
         message: 'Enter custom data directory path:',
-        default: defaultPath,
+        default: suggestedPath,
         validate: (input: string) => {
           const resolvedPath = path.resolve(input);
           return resolvedPath.length > 0 || 'Please enter a valid path';
