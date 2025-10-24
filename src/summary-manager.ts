@@ -89,7 +89,7 @@ export class SummaryManager {
 
     const entriesByDate = new Map<string, typeof weeklyEntries>();
     weeklyEntries.forEach((entry) => {
-      const dateKey = dayjs(entry.date).format('YYYY-MM-DD');
+      const dateKey = dayjs(entry.date).tz(this.config.timezone).format('YYYY-MM-DD');
       if (!entriesByDate.has(dateKey)) {
         entriesByDate.set(dateKey, []);
       }
