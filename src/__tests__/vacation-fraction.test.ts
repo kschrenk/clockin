@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { VacationManager } from '../src/vacation-manager.js';
-import { DataManager } from '../src/data-manager.js';
-import { Config } from '../src/types.js';
+import { VacationManager } from '../vacation-manager.js';
+import { DataManager } from '../data-manager.js';
+import { Config } from '../types.js';
 import fs from 'fs/promises';
 
 const dataDir = '/tmp/test-clockin-fraction';

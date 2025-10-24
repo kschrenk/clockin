@@ -5,6 +5,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Environment files
+.env.local
+
 # Build output
 dist/
 build/

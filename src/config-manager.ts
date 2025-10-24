@@ -1,14 +1,42 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import dotenv from 'dotenv';
 import { Config, WorkingDay } from './types.js';
+import { fileURLToPath } from 'url';
+
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Only load .env when not under Vitest to avoid overriding .env.test variables
+if (!process.env.VITEST) {
+  // Determine if we're in development or production
+  const isDevelopment = process.env.NODE_ENV === 'development' ||
+                       __filename.includes('/src/') ||
+                       process.argv[0].includes('tsx');
+
+  if (isDevelopment) {
+    // Development: Look for .env.local in project root
+    const projectRoot = path.resolve(__dirname, '../..');
+    const envLocalPath = path.join(projectRoot, '.env.local');
+    dotenv.config({ path: envLocalPath });
+  } else {
+    // Production: Look for .env in the same directory as the compiled JS
+    const envPath = path.join(__dirname, '.env');
+    dotenv.config({ path: envPath });
+  }
+}
 
 export class ConfigManager {
   private configPath: string;
   private globalConfigPath: string;
 
-  constructor(dataDirectory?: string, testGlobalConfigPath?: string) {
-    this.globalConfigPath = testGlobalConfigPath || path.join(os.homedir(), '.clockin', 'currentConfig.json');
+  constructor(dataDirectory?: string) {
+
+    // Use environment variable or default path
+    const configBasePath = process.env.CLOCKIN_CONFIG_PATH || path.join(os.homedir(), '.clockin');
+    this.globalConfigPath = path.join(configBasePath, 'currentConfig.json');
 
     if (dataDirectory) {
       this.configPath = path.join(dataDirectory, '.clockin', 'config.json');

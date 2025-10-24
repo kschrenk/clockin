@@ -258,6 +258,154 @@ program
     }
   });
 
+program
+  .command('debug')
+  .description('Show debug information including environment variables and system info')
+  .action(async () => {
+    try {
+      console.log(chalk.blue.bold('\n🐛 Debug Information\n'));
+
+      // Environment Variables Section
+      console.log(chalk.yellow.bold('Environment Variables:'));
+      const envTable = new Table({
+        head: [chalk.cyan('Variable'), chalk.cyan('Value')],
+        colWidths: [30, 60],
+      });
+
+      const relevantEnvVars = [
+        'NODE_ENV',
+        'HOME',
+        'USER',
+        'PWD',
+        'SHELL',
+        'PATH',
+        'TERM',
+        'LANG',
+        'TZ',
+        'CLOCKIN_CONFIG_DIR',
+        'CLOCKIN_DATA_DIR',
+        'XDG_CONFIG_HOME',
+        'XDG_DATA_HOME',
+      ];
+
+      relevantEnvVars.forEach(varName => {
+        const value = process.env[varName] || 'undefined';
+        envTable.push([varName, value]);
+      });
+
+      console.log(envTable.toString());
+
+      // System Information Section
+      console.log(chalk.yellow.bold('\nSystem Information:'));
+      const systemTable = new Table({
+        head: [chalk.cyan('Property'), chalk.cyan('Value')],
+        colWidths: [30, 60],
+      });
+
+      systemTable.push(
+        ['Platform', os.platform()],
+        ['Architecture', os.arch()],
+        ['OS Release', os.release()],
+        ['Node.js Version', process.version],
+        ['Current Working Directory', process.cwd()],
+        ['User Home Directory', os.homedir()],
+        ['Temporary Directory', os.tmpdir()],
+        ['Process ID', process.pid.toString()],
+        ['Process Title', process.title],
+        ['Execution Path', process.execPath]
+      );
+
+      console.log(systemTable.toString());
+
+      // Configuration Paths Section
+      console.log(chalk.yellow.bold('\nConfiguration Paths:'));
+      const pathTable = new Table({
+        head: [chalk.cyan('Type'), chalk.cyan('Path'), chalk.cyan('Exists')],
+        colWidths: [25, 50, 10],
+      });
+
+      const configManager = new ConfigManager();
+      const globalConfigDir = path.join(os.homedir(), '.clockin');
+
+      try {
+        const currentDataDir = await configManager.getCurrentDataDirectory();
+        const currentConfigDir = currentDataDir ? path.join(currentDataDir, '.clockin') : 'N/A';
+
+        // Check if paths exist
+        let globalExists = 'No';
+        let currentExists = 'No';
+
+        try {
+          await fs.access(globalConfigDir);
+          globalExists = 'Yes';
+        } catch (error) {
+          // Directory doesn't exist
+        }
+
+        if (currentDataDir) {
+          try {
+            await fs.access(currentConfigDir);
+            currentExists = 'Yes';
+          } catch (error) {
+            // Directory doesn't exist
+          }
+        }
+
+        pathTable.push(
+          ['Global Config Dir', globalConfigDir, globalExists],
+          ['Current Data Dir', currentDataDir || 'N/A', currentDataDir ? 'Yes' : 'No'],
+          ['Current Config Dir', currentConfigDir, currentExists]
+        );
+      } catch (error) {
+        pathTable.push(
+          ['Global Config Dir', globalConfigDir, 'Unknown'],
+          ['Current Data Dir', 'Error loading', 'No'],
+          ['Current Config Dir', 'Error loading', 'No']
+        );
+      }
+
+      console.log(pathTable.toString());
+
+      // Try to load and show configuration status
+      console.log(chalk.yellow.bold('\nConfiguration Status:'));
+      const statusTable = new Table({
+        head: [chalk.cyan('Check'), chalk.cyan('Status'), chalk.cyan('Details')],
+        colWidths: [25, 15, 50],
+      });
+
+      try {
+        const config = await configManager.loadConfig();
+        if (config) {
+          statusTable.push(
+            ['Config Loaded', 'Success', 'Configuration loaded successfully'],
+            ['Setup Completed', config.setupCompleted ? 'Yes' : 'No', config.setupCompleted ? 'Ready to use' : 'Setup required'],
+            ['Data Directory', 'Set', config.dataDirectory]
+          );
+        } else {
+          statusTable.push(
+            ['Config Loaded', 'Failed', 'No configuration found'],
+            ['Setup Completed', 'No', 'Setup required'],
+            ['Data Directory', 'Not Set', 'Configuration needed']
+          );
+        }
+      } catch (error) {
+        statusTable.push(
+          ['Config Loaded', 'Error', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`],
+          ['Setup Completed', 'Unknown', 'Cannot determine'],
+          ['Data Directory', 'Unknown', 'Cannot determine']
+        );
+      }
+
+      console.log(statusTable.toString());
+
+      console.log(chalk.green('\n✅ Debug information displayed successfully!'));
+      console.log(chalk.gray('Use this information to troubleshoot configuration issues.\n'));
+
+    } catch (error) {
+      console.log(chalk.red('❌ Error displaying debug information:'), error);
+    }
+  });
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.log(chalk.red('❌ Unknown command. Use "clockin --help" to see available commands.'));

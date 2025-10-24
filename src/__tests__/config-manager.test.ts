@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { ConfigManager } from '../src/config-manager.js';
-import { Config } from '../src/types.js';
+import { ConfigManager } from '../config-manager.js';
+import { Config } from '../types.js';
 import fs from 'fs/promises';
-import path from 'path';
 
 describe('ConfigManager', () => {
   let configManager: ConfigManager;
@@ -10,23 +9,24 @@ describe('ConfigManager', () => {
   let testDataDir: string;
 
   beforeEach(async () => {
-    // Use completely isolated test directories
-    testGlobalConfigDir = '/tmp/test-clockin-global';
-    testDataDir = '/tmp/test-clockin-data';
+    // Read test directories from environment (set via .env.test loaded by Vitest)
+    testGlobalConfigDir = process.env.CLOCKIN_CONFIG_PATH!;
+    testDataDir = process.env.CLOCKIN_TEST_DATA_DIR!;
 
-    // Clean up before each test
+    console.log('🚀', {testGlobalConfigDir})
+
+    // Clean up before each test to ensure isolation
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
       await fs.rm(testDataDir, { recursive: true, force: true });
     } catch {}
 
-    // Create a ConfigManager instance with test directories
-    const testGlobalConfigPath = path.join(testGlobalConfigDir, 'currentConfig.json');
-    configManager = new ConfigManager(undefined, testGlobalConfigPath);
+    // Instantiate ConfigManager (will use env-based global config path implicitly)
+    configManager = new ConfigManager();
   });
 
   afterEach(async () => {
-    // Clean up test directories
+    // Clean up created test directories
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
       await fs.rm(testDataDir, { recursive: true, force: true });

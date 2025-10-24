@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { VacationManager } from '../src/vacation-manager.js';
-import { Config } from '../src/types.js';
+import { VacationManager } from '../vacation-manager.js';
+import { Config } from '../types.js';
 
 describe('VacationManager', () => {
   const mockConfig: Config = {
