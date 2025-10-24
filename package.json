@@ -39,18 +39,17 @@
     "commander": "^12.1.0",
     "csv-parser": "^3.0.0",
     "csv-writer": "^1.6.0",
-    "date-fns": "^2.30.0",
+    "dotenv": "^17.2.3",
     "inquirer": "^9.2.12",
-    "open": "^10.1.0"
+    "open": "^10.1.0",
+    "dayjs": "^1.11.13"
   },
   "devDependencies": {
-    "@types/dotenv": "^8.2.3",
     "@types/inquirer": "^9.0.7",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "@vitest/coverage-v8": "^1.0.0",
-    "dotenv": "^17.2.3",
     "eslint": "^8.54.0",
     "eslint-config-prettier": "9.1.0",
     "eslint-plugin-prettier": "5.1.3",

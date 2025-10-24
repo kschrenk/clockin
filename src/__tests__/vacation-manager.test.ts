@@ -18,6 +18,7 @@ describe('VacationManager', () => {
     ],
     dataDirectory: '/tmp/test-clockin',
     setupCompleted: true,
+    timezone: 'Europe/Berlin',
   };
 
   it('should calculate remaining vacation days correctly', async () => {

@@ -1,5 +1,6 @@
 import chalk from 'chalk';
-import { format, addDays, parseISO } from 'date-fns';
+import dayjs from 'dayjs';
+import { addDays, formatDate } from './date-utils.js';
 import { Config, VacationEntry } from './types.js';
 import { DataManager } from './data-manager.js';
 
@@ -19,7 +20,7 @@ export class VacationManager {
       return;
     }
 
-    const rawStart = startDate ? parseISO(startDate) : new Date();
+    const rawStart = startDate ? dayjs(startDate).toDate() : new Date();
     const firstWorkingDay = this.findNextWorkingDay(rawStart);
     if (!firstWorkingDay) {
       console.log(chalk.red('\u274c Could not determine a working day to start vacation.'));
@@ -27,7 +28,7 @@ export class VacationManager {
     }
 
     const fullDays = Math.floor(requestedDays);
-    const remainder = +(requestedDays - fullDays).toFixed(2); // keep two decimals
+    const remainder = +(requestedDays - fullDays).toFixed(2);
 
     const workingDayDates: Date[] = [];
     let cursor = new Date(firstWorkingDay);
@@ -42,7 +43,6 @@ export class VacationManager {
 
     let endDate: Date;
     if (remainder > 0) {
-      // Need one additional working day for the partial portion
       const fractionalDayDate = fullDays === 0 ? firstWorkingDay : this.findNextWorkingDay(cursor);
       if (!fractionalDayDate) {
         console.log(
@@ -54,7 +54,6 @@ export class VacationManager {
     } else if (workingDayDates.length > 0) {
       endDate = workingDayDates[workingDayDates.length - 1];
     } else {
-      // No full days, no remainder? (Only possible if requestedDays rounded to 0)
       endDate = firstWorkingDay;
     }
 
@@ -62,8 +61,8 @@ export class VacationManager {
 
     const vacationEntry: VacationEntry = {
       id: this.generateId(),
-      startDate: format(firstWorkingDay, 'yyyy-MM-dd'),
-      endDate: format(endDate, 'yyyy-MM-dd'),
+      startDate: formatDate(firstWorkingDay, 'YYYY-MM-DD'),
+      endDate: formatDate(endDate, 'YYYY-MM-DD'),
       days: totalWorkingSpanDays,
       description: `${totalWorkingSpanDays} vacation day${totalWorkingSpanDays !== 1 ? 's' : ''}`,
     };
@@ -74,11 +73,11 @@ export class VacationManager {
     if (fullDays > 0 || remainder > 0) {
       console.log(
         chalk.cyan(
-          `Dates: ${format(firstWorkingDay, 'MMM do')} - ${format(endDate, 'MMM do, yyyy')}`
+          `Dates: ${formatDate(firstWorkingDay, 'MMM Do')} - ${formatDate(endDate, 'MMM Do, YYYY')}`
         )
       );
     } else {
-      console.log(chalk.cyan(`Date: ${format(firstWorkingDay, 'MMM do, yyyy')}`));
+      console.log(chalk.cyan(`Date: ${formatDate(firstWorkingDay, 'MMM Do, YYYY')}`));
     }
     console.log(chalk.cyan(`Vacation days (counting fractions): ${totalWorkingSpanDays}`));
   }
@@ -86,7 +85,6 @@ export class VacationManager {
   private findNextWorkingDay(date: Date): Date | null {
     let cursor = new Date(date);
     for (let i = 0; i < 14; i++) {
-      // look ahead two weeks safeguard
       if (this.isWorkingDay(cursor)) return cursor;
       cursor = addDays(cursor, 1);
     }
@@ -94,34 +92,34 @@ export class VacationManager {
   }
 
   async addVacationRange(startDate: string, endDate: string): Promise<void> {
-    const start = parseISO(startDate);
-    const end = parseISO(endDate);
+    const start = dayjs(startDate).toDate();
+    const end = dayjs(endDate).toDate();
 
     if (start > end) {
-      console.log(chalk.red('❌ Start date must be before end date.'));
+      console.log(chalk.red('\u274c Start date must be before end date.'));
       return;
     }
 
     const workingDays = this.calculateWorkingDaysInRange(start, end);
 
     if (workingDays.length === 0) {
-      console.log(chalk.yellow('⚠️  No working days found in the specified date range.'));
+      console.log(chalk.yellow('\u26a0\ufe0f  No working days found in the specified date range.'));
       return;
     }
 
     const vacationEntry: VacationEntry = {
       id: this.generateId(),
-      startDate: format(start, 'yyyy-MM-dd'),
-      endDate: format(end, 'yyyy-MM-dd'),
+      startDate: formatDate(start, 'YYYY-MM-DD'),
+      endDate: formatDate(end, 'YYYY-MM-DD'),
       days: workingDays.length,
       description: `Vacation range: ${workingDays.length} working day${workingDays.length > 1 ? 's' : ''}`,
     };
 
     await this.dataManager.saveVacationEntry(vacationEntry);
 
-    console.log(chalk.green('🏖️  Vacation range added successfully!'));
+    console.log(chalk.green('\ud83c\udfd6\ufe0f  Vacation range added successfully!'));
     console.log(
-      chalk.cyan(`Date range: ${format(start, 'MMM do')} - ${format(end, 'MMM do, yyyy')}`)
+      chalk.cyan(`Date range: ${formatDate(start, 'MMM Do')} - ${formatDate(end, 'MMM Do, YYYY')}`)
     );
     console.log(chalk.cyan(`Working days: ${workingDays.length}`));
   }
@@ -141,7 +139,7 @@ export class VacationManager {
   }
 
   private isWorkingDay(date: Date): boolean {
-    const dayName = format(date, 'EEEE').toLowerCase();
+    const dayName = dayjs(date).format('dddd').toLowerCase();
     const workingDay = this.config.workingDays.find((day) => day.day === dayName);
     return workingDay?.isWorkingDay ?? false;
   }

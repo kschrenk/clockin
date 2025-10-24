@@ -6,19 +6,16 @@ import fs from 'fs/promises';
 describe('ConfigManager', () => {
   let configManager: ConfigManager;
   let testGlobalConfigDir: string;
-  let testDataDir: string;
 
   beforeEach(async () => {
     // Read test directories from environment (set via .env.test loaded by Vitest)
     testGlobalConfigDir = process.env.CLOCKIN_CONFIG_PATH!;
-    testDataDir = process.env.CLOCKIN_TEST_DATA_DIR!;
 
-    console.log('🚀', {testGlobalConfigDir})
+    console.log('🚀', { testGlobalConfigDir });
 
     // Clean up before each test to ensure isolation
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-      await fs.rm(testDataDir, { recursive: true, force: true });
     } catch {}
 
     // Instantiate ConfigManager (will use env-based global config path implicitly)
@@ -29,7 +26,6 @@ describe('ConfigManager', () => {
     // Clean up created test directories
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-      await fs.rm(testDataDir, { recursive: true, force: true });
     } catch {}
   });
 
@@ -56,8 +52,9 @@ describe('ConfigManager', () => {
         { day: 'saturday', isWorkingDay: false },
         { day: 'sunday', isWorkingDay: false },
       ],
-      dataDirectory: testDataDir,
+      dataDirectory: testGlobalConfigDir,
       setupCompleted: true,
+      timezone: 'Europe/Berlin',
     };
 
     await configManager.saveConfig(testConfig);

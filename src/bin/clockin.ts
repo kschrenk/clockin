@@ -176,24 +176,12 @@ program
         }
       }
 
-      // Clear global config
-      const globalConfigDir = path.join(os.homedir(), '.clockin');
-      try {
-        await fs.rm(globalConfigDir, { recursive: true, force: true });
-        console.log(chalk.green('✅ Cleared global configuration'));
-      } catch (error) {
-        // Ignore if directory doesn't exist
-      }
-
       // Try to clear current target directory config
       try {
         const configManager = new ConfigManager();
-        const currentDataDir = await configManager.getCurrentDataDirectory();
-        if (currentDataDir) {
-          const targetConfigDir = path.join(currentDataDir, '.clockin');
-          await fs.rm(targetConfigDir, { recursive: true, force: true });
-          console.log(chalk.green(`✅ Cleared data directory: ${currentDataDir}`));
-        }
+        const currentDataDir = configManager.getDataDirectory();
+        await fs.rm(currentDataDir, { recursive: true, force: true });
+        console.log(chalk.green(`✅ Cleared data directory: ${currentDataDir}`));
       } catch (error) {
         // Ignore if can't determine or clean current config
       }
@@ -288,7 +276,7 @@ program
         'XDG_DATA_HOME',
       ];
 
-      relevantEnvVars.forEach(varName => {
+      relevantEnvVars.forEach((varName) => {
         const value = process.env[varName] || 'undefined';
         envTable.push([varName, value]);
       });
@@ -325,18 +313,17 @@ program
       });
 
       const configManager = new ConfigManager();
-      const globalConfigDir = path.join(os.homedir(), '.clockin');
 
       try {
-        const currentDataDir = await configManager.getCurrentDataDirectory();
-        const currentConfigDir = currentDataDir ? path.join(currentDataDir, '.clockin') : 'N/A';
+        const currentDataDir = configManager.getDataDirectory();
+        const configFilePath = configManager.getDataDirectoryConfigFilePath();
 
         // Check if paths exist
         let globalExists = 'No';
         let currentExists = 'No';
 
         try {
-          await fs.access(globalConfigDir);
+          await fs.access(currentDataDir);
           globalExists = 'Yes';
         } catch (error) {
           // Directory doesn't exist
@@ -344,7 +331,7 @@ program
 
         if (currentDataDir) {
           try {
-            await fs.access(currentConfigDir);
+            await fs.access(configFilePath);
             currentExists = 'Yes';
           } catch (error) {
             // Directory doesn't exist
@@ -352,16 +339,15 @@ program
         }
 
         pathTable.push(
-          ['Global Config Dir', globalConfigDir, globalExists],
           ['Current Data Dir', currentDataDir || 'N/A', currentDataDir ? 'Yes' : 'No'],
-          ['Current Config Dir', currentConfigDir, currentExists]
+          ['Current Config File', configFilePath, currentExists]
         );
       } catch (error) {
-        pathTable.push(
-          ['Global Config Dir', globalConfigDir, 'Unknown'],
-          ['Current Data Dir', 'Error loading', 'No'],
-          ['Current Config Dir', 'Error loading', 'No']
-        );
+        pathTable.push([
+          'Error retrieving paths',
+          '',
+          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ]);
       }
 
       console.log(pathTable.toString());
@@ -378,7 +364,11 @@ program
         if (config) {
           statusTable.push(
             ['Config Loaded', 'Success', 'Configuration loaded successfully'],
-            ['Setup Completed', config.setupCompleted ? 'Yes' : 'No', config.setupCompleted ? 'Ready to use' : 'Setup required'],
+            [
+              'Setup Completed',
+              config.setupCompleted ? 'Yes' : 'No',
+              config.setupCompleted ? 'Ready to use' : 'Setup required',
+            ],
             ['Data Directory', 'Set', config.dataDirectory]
           );
         } else {
@@ -390,7 +380,11 @@ program
         }
       } catch (error) {
         statusTable.push(
-          ['Config Loaded', 'Error', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`],
+          [
+            'Config Loaded',
+            'Error',
+            `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          ],
           ['Setup Completed', 'Unknown', 'Cannot determine'],
           ['Data Directory', 'Unknown', 'Cannot determine']
         );
@@ -400,7 +394,6 @@ program
 
       console.log(chalk.green('\n✅ Debug information displayed successfully!'));
       console.log(chalk.gray('Use this information to troubleshoot configuration issues.\n'));
-
     } catch (error) {
       console.log(chalk.red('❌ Error displaying debug information:'), error);
     }

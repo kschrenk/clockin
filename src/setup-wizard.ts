@@ -1,9 +1,9 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import path from 'path';
-import os from 'os';
+
 import { Config, WorkingDay } from './types.js';
 import { ConfigManager } from './config-manager.js';
+import { getDataDirectory } from './helper/getDataDirectory.js';
 
 export class SetupWizard {
   private configManager: ConfigManager;
@@ -73,17 +73,67 @@ export class SetupWizard {
       },
     ]);
 
+    const timezone = await this.collectTimezone();
     const workingDays = await this.collectWorkingDays();
-    const dataDirectory = await this.collectDataDirectory();
 
     return {
       name: answers.name,
       hoursPerWeek: answers.hoursPerWeek,
       vacationDaysPerYear: answers.vacationDaysPerYear,
+      timezone,
       workingDays,
-      dataDirectory,
       setupCompleted: false,
+      dataDirectory: getDataDirectory(process.env.CLOCKIN_CONFIG_PATH),
     };
+  }
+
+  private async collectTimezone(): Promise<string> {
+    console.log(chalk.blue('\n🌍 Configure your timezone:'));
+
+    const commonTimezones = [
+      { name: 'Europe/Berlin (GMT+1/+2)', value: 'Europe/Berlin' },
+      { name: 'Europe/London (GMT+0/+1)', value: 'Europe/London' },
+      { name: 'Europe/Paris (GMT+1/+2)', value: 'Europe/Paris' },
+      { name: 'America/New_York (EST/EDT)', value: 'America/New_York' },
+      { name: 'America/Los_Angeles (PST/PDT)', value: 'America/Los_Angeles' },
+      { name: 'America/Chicago (CST/CDT)', value: 'America/Chicago' },
+      { name: 'Asia/Tokyo (JST)', value: 'Asia/Tokyo' },
+      { name: 'Asia/Shanghai (CST)', value: 'Asia/Shanghai' },
+      { name: 'Australia/Sydney (AEST/AEDT)', value: 'Australia/Sydney' },
+      { name: 'UTC (Coordinated Universal Time)', value: 'UTC' },
+      { name: 'Custom timezone...', value: 'custom' },
+    ];
+
+    const { timezone } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'timezone',
+        message: 'Select your timezone:',
+        choices: commonTimezones,
+        default: 'Europe/Berlin',
+      },
+    ]);
+
+    if (timezone === 'custom') {
+      const { customTimezone } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'customTimezone',
+          message: 'Enter your timezone (e.g., Europe/Berlin, America/New_York):',
+          default: 'Europe/Berlin',
+          validate: (input: string) => {
+            // Basic validation for timezone format
+            const timezoneRegex = /^[A-Za-z_]+\/[A-Za-z_]+$/;
+            return (
+              timezoneRegex.test(input) || input === 'UTC' || 'Please enter a valid timezone format'
+            );
+          },
+        },
+      ]);
+      return customTimezone;
+    }
+
+    return timezone;
   }
 
   private async collectWorkingDays(): Promise<WorkingDay[]> {
@@ -124,52 +174,11 @@ export class SetupWizard {
     return workingDays;
   }
 
-  private async collectDataDirectory(): Promise<string> {
-    const configManager = new ConfigManager();
-    const currentDataDir = await configManager.getCurrentDataDirectory();
-    const actualDefault = path.join(os.homedir(), 'clockin-data');
-
-    // If there's a current data directory, offer it as an option, otherwise use actual default
-    const suggestedPath = currentDataDir || actualDefault;
-    const isCurrentConfig = currentDataDir !== null;
-
-    const message = isCurrentConfig
-      ? `Keep current data directory (${suggestedPath})?`
-      : `Store data in default directory (${suggestedPath})?`;
-
-    const { useDefault } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'useDefault',
-        message: message,
-        default: true,
-      },
-    ]);
-
-    if (useDefault) {
-      return suggestedPath;
-    }
-
-    const { customPath } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'customPath',
-        message: 'Enter custom data directory path:',
-        default: suggestedPath,
-        validate: (input: string) => {
-          const resolvedPath = path.resolve(input);
-          return resolvedPath.length > 0 || 'Please enter a valid path';
-        },
-      },
-    ]);
-
-    return path.resolve(customPath);
-  }
-
   private displaySummary(config: Config): void {
     console.log(`${chalk.cyan('Name:')} ${config.name}`);
     console.log(`${chalk.cyan('Hours per week:')} ${config.hoursPerWeek}`);
     console.log(`${chalk.cyan('Vacation days per year:')} ${config.vacationDaysPerYear}`);
+    console.log(`${chalk.cyan('Timezone:')} ${config.timezone}`);
 
     const workingDayNames = config.workingDays
       .filter((day) => day.isWorkingDay)

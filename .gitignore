@@ -58,6 +58,7 @@ pids/
 # Clockin specific files
 # Global config pointer (should be user-specific)
 .clockin/
+clockin-data
 
 # Test data directories
 /tmp/test-*

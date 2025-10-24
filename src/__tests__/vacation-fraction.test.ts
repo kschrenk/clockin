@@ -22,6 +22,7 @@ describe('VacationManager fractional days', () => {
     ],
     dataDirectory: dataDir,
     setupCompleted: true,
+    timezone: 'Europe/Berlin',
   };
 
   it('stores a half day vacation correctly', async () => {

@@ -80,3 +80,14 @@ clockin vacation add --range <start_date> <end_date>
 ```
 
 Adds vacation days for the given date range. It automatically skips non working days.
+
+## Directories
+
+.clockin # hidden directory based on CLOCKIN_CONFIG_PATH env variable or default to `~/.clockin`
+    |-- currentConfig.json # points to the active config directory
+
+clockin-data
+    |-- config.json
+    |-- time-entries.csv
+
+

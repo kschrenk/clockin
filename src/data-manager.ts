@@ -12,16 +12,15 @@ export class DataManager {
 
   constructor(config: Config) {
     this.config = config;
-    this.timeEntriesPath = path.join(config.dataDirectory, '.clockin', 'time-entries.csv');
-    this.vacationEntriesPath = path.join(config.dataDirectory, '.clockin', 'vacation-entries.csv');
+    this.timeEntriesPath = path.join(config.dataDirectory, 'time-entries.csv');
+    this.vacationEntriesPath = path.join(config.dataDirectory, 'vacation-entries.csv');
   }
 
   async ensureDataDirectory(): Promise<void> {
-    const clockinDir = path.join(this.config.dataDirectory, '.clockin');
     try {
-      await fs.access(clockinDir);
+      await fs.access(this.config.dataDirectory);
     } catch {
-      await fs.mkdir(clockinDir, { recursive: true });
+      await fs.mkdir(this.config.dataDirectory, { recursive: true });
     }
   }
 
@@ -51,7 +50,6 @@ export class DataManager {
                   ? parseInt(data.pauseTime || data['Pause Time (minutes)'] || '0', 10)
                   : undefined,
               type: (data.type || data.Type) as TimeEntry['type'],
-              description: data.description || data.Description || undefined,
             };
             entries.push(entry);
           } catch (e) {

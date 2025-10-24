@@ -3,17 +3,15 @@ import Table from 'cli-table3';
 import open from 'open';
 import fs from 'fs/promises';
 import { createObjectCsvWriter } from 'csv-writer';
-import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  isWithinInterval,
-  parseISO,
-  differenceInMilliseconds,
-} from 'date-fns';
 import { Config, SummaryData } from './types.js';
 import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
+import {
+  calculateWorkingTime,
+  dayjs,
+  getCurrentDateTime,
+  isValidDateString,
+} from './date-utils.js';
 
 export class SummaryManager {
   private config: Config;
@@ -28,8 +26,7 @@ export class SummaryManager {
 
   async showSummary(): Promise<void> {
     const summaryData = await this.calculateSummaryData();
-
-    console.log(chalk.blue.bold('\n📊 Work Summary\n'));
+    console.log(chalk.blue.bold('\n\ud83d\udcca Work Summary\n'));
 
     const table = new Table({
       head: [chalk.cyan('Metric'), chalk.cyan('Value')],
@@ -51,18 +48,24 @@ export class SummaryManager {
 
   async showWeeklySummary(): Promise<void> {
     const timeEntries = await this.dataManager.loadTimeEntries();
-    const now = new Date();
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
-    const weekEnd = endOfWeek(now, { weekStartsOn: 1 }); // Sunday
+    const nowTz = getCurrentDateTime(this.config.timezone); // Day.js instance in correct TZ
+
+    const weekStart = nowTz.startOf('isoWeek');
+    const weekEnd = nowTz.endOf('isoWeek');
 
     const weeklyEntries = timeEntries.filter((entry) => {
-      const entryDate = parseISO(entry.date);
-      return isWithinInterval(entryDate, { start: weekStart, end: weekEnd });
+      if (!isValidDateString(entry.date)) return false;
+      const entryDate = dayjs(entry.date).tz(this.config.timezone);
+      return (
+        entryDate.isSame(weekStart, 'day') ||
+        entryDate.isSame(weekEnd, 'day') ||
+        (entryDate.isAfter(weekStart) && entryDate.isBefore(weekEnd))
+      );
     });
 
     console.log(
       chalk.blue.bold(
-        `\n📅 Weekly Summary (${format(weekStart, 'MMM do')} - ${format(weekEnd, 'MMM do, yyyy')})\n`
+        `\n\ud83d\udcc5 Weekly Summary (${weekStart.format('MMM Do')} - ${weekEnd.format('MMM Do, YYYY')})\n`
       )
     );
 
@@ -84,21 +87,55 @@ export class SummaryManager {
 
     let totalWeeklyHours = 0;
 
+    const entriesByDate = new Map<string, typeof weeklyEntries>();
     weeklyEntries.forEach((entry) => {
-      if (entry.endTime) {
-        const startTime = new Date(entry.startTime);
-        const endTime = new Date(entry.endTime);
-        const breakTime = (entry.pauseTime || 0) * 60 * 1000; // Convert minutes to milliseconds
-        const workingTime = differenceInMilliseconds(endTime, startTime) - breakTime;
+      const dateKey = dayjs(entry.date).format('YYYY-MM-DD');
+      if (!entriesByDate.has(dateKey)) {
+        entriesByDate.set(dateKey, []);
+      }
+      entriesByDate.get(dateKey)?.push(entry);
+    });
 
-        totalWeeklyHours += workingTime;
+    entriesByDate.forEach((dayEntries, dateKey) => {
+      let dailyTotal = 0;
+      let hasValidEntries = false;
+
+      dayEntries.forEach((entry) => {
+        if (!entry.endTime) return;
+        if (!isValidDateString(entry.startTime) || !isValidDateString(entry.endTime)) return;
+
+        const startTime = dayjs(entry.startTime);
+        const endTime = dayjs(entry.endTime);
+        const breakTimeMs = (entry.pauseTime || 0) * 60 * 1000;
+        const diffMs = endTime.diff(startTime) - breakTimeMs;
+
+        if (!Number.isFinite(diffMs) || diffMs < 0) return;
+        dailyTotal += diffMs;
+        hasValidEntries = true;
+      });
+
+      if (hasValidEntries) {
+        totalWeeklyHours += dailyTotal;
+
+        // Show first and last entry times for the day
+        const validEntries = dayEntries.filter(
+          (e) => e.endTime && isValidDateString(e.startTime) && isValidDateString(e.endTime)
+        );
+        const firstEntry = validEntries.reduce((earliest, entry) =>
+          dayjs(entry.startTime).isBefore(dayjs(earliest.startTime)) ? entry : earliest
+        );
+        const lastEntry = validEntries.reduce((latest, entry) =>
+          dayjs(entry.endTime!).isAfter(dayjs(latest.endTime!)) ? entry : latest
+        );
+
+        const totalBreakTime = dayEntries.reduce((sum, entry) => sum + (entry.pauseTime || 0), 0);
 
         table.push([
-          format(parseISO(entry.date), 'MMM do'),
-          format(startTime, 'HH:mm'),
-          format(endTime, 'HH:mm'),
-          `${entry.pauseTime || 0}m`,
-          this.formatHours(workingTime),
+          dayjs(dateKey).format('MMM Do'),
+          dayjs(firstEntry.startTime).format('HH:mm'),
+          dayjs(lastEntry.endTime!).format('HH:mm'),
+          `${totalBreakTime}m`,
+          this.formatHours(dailyTotal),
         ]);
       }
     });
@@ -107,27 +144,24 @@ export class SummaryManager {
     console.log(chalk.cyan(`\nTotal weekly hours: ${this.formatHours(totalWeeklyHours)}`));
     console.log(chalk.cyan(`Expected weekly hours: ${this.config.hoursPerWeek}h`));
 
-    const difference = totalWeeklyHours / (1000 * 60 * 60) - this.config.hoursPerWeek;
+    const difference = totalWeeklyHours / 3_600_000 - this.config.hoursPerWeek;
     if (difference > 0) {
       console.log(chalk.green(`Overtime: +${difference.toFixed(1)}h`));
     } else if (difference < 0) {
       console.log(chalk.yellow(`Under time: ${difference.toFixed(1)}h`));
     } else {
-      console.log(chalk.blue('Exactly on target! 🎯'));
+      console.log(chalk.blue('Exactly on target! \ud83c\udfaf'));
     }
     console.log();
   }
 
   async openCsvFile(): Promise<void> {
     const csvPath = this.dataManager.getTimeEntriesPath();
-
-    // Ensure the CSV file exists by creating it with headers if it doesn't exist
     await this.dataManager.ensureDataDirectory();
 
     try {
       await fs.access(csvPath);
     } catch {
-      // Create empty CSV with headers
       const csvWriter = createObjectCsvWriter({
         path: csvPath,
         header: [
@@ -140,55 +174,52 @@ export class SummaryManager {
           { id: 'description', title: 'Description' },
         ],
       });
-      await csvWriter.writeRecords([]); // Write empty file with headers
-      console.log(chalk.yellow('📋 Created empty time entries CSV file.'));
+      await csvWriter.writeRecords([]);
+      console.log(chalk.yellow('\ud83d\udccb Created empty time entries CSV file.'));
     }
 
     try {
       await open(csvPath);
-      console.log(chalk.green('📊 Opening CSV file...'));
+      console.log(chalk.green('\ud83d\udcca Opening CSV file...'));
     } catch (error) {
-      console.log(chalk.red('❌ Failed to open CSV file:'), error);
+      console.log(chalk.red('\u274c Failed to open CSV file:'), error);
       console.log(chalk.gray(`File location: ${csvPath}`));
     }
   }
 
   private async calculateSummaryData(): Promise<SummaryData> {
     const timeEntries = await this.dataManager.loadTimeEntries();
-    const now = new Date();
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+    const nowTz = getCurrentDateTime(this.config.timezone);
+    const weekStart = nowTz.startOf('isoWeek');
+    const weekEnd = nowTz.endOf('isoWeek');
 
-    // Calculate total hours worked
     let totalHoursWorked = 0;
     let currentWeekHours = 0;
 
-    timeEntries.forEach((entry) => {
-      if (entry.endTime) {
-        const startTime = new Date(entry.startTime);
-        const endTime = new Date(entry.endTime);
-        const breakTime = (entry.pauseTime || 0) * 60 * 1000;
-        const workingTime = differenceInMilliseconds(endTime, startTime) - breakTime;
+    for (const entry of timeEntries) {
+      if (!entry.endTime) continue;
+      const workingMs = calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
+      totalHoursWorked += workingMs;
 
-        totalHoursWorked += workingTime;
-
-        // Check if entry is in current week
-        const entryDate = parseISO(entry.date);
-        if (isWithinInterval(entryDate, { start: weekStart, end: weekEnd })) {
-          currentWeekHours += workingTime;
+      if (isValidDateString(entry.date)) {
+        const entryDate = dayjs(entry.date).tz(this.config.timezone);
+        if (
+          entryDate.isSame(weekStart, 'day') ||
+          entryDate.isSame(weekEnd, 'day') ||
+          (entryDate.isAfter(weekStart) && entryDate.isBefore(weekEnd))
+        ) {
+          currentWeekHours += workingMs;
         }
       }
-    });
+    }
 
-    // Calculate vacation data
     const totalVacationDays = await this.vacationManager.getTotalVacationDays();
     const remainingVacationDays = await this.vacationManager.getRemainingVacationDays();
 
-    // Calculate overtime (simplified calculation)
-    const totalHoursInHours = totalHoursWorked / (1000 * 60 * 60);
-    const weeksWorked = timeEntries.length > 0 ? Math.max(1, timeEntries.length / 5) : 0; // Rough estimate
+    const totalHoursInHours = totalHoursWorked / 3_600_000;
+    const weeksWorked = timeEntries.length > 0 ? Math.max(1, Math.ceil(timeEntries.length / 5)) : 0;
     const expectedTotalHours = weeksWorked * this.config.hoursPerWeek;
-    const overtimeHours = Math.max(0, (totalHoursInHours - expectedTotalHours) * (1000 * 60 * 60));
+    const overtimeHours = Math.max(0, (totalHoursInHours - expectedTotalHours) * 3_600_000);
 
     return {
       totalHoursWorked,
@@ -201,7 +232,8 @@ export class SummaryManager {
   }
 
   private formatHours(milliseconds: number): string {
-    const hours = milliseconds / (1000 * 60 * 60);
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0) return '0.0h';
+    const hours = milliseconds / 3_600_000;
     return `${hours.toFixed(1)}h`;
   }
 }

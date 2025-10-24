@@ -4,6 +4,7 @@ export interface Config {
   vacationDaysPerYear: number;
   workingDays: WorkingDay[];
   dataDirectory: string;
+  timezone: string;
   setupCompleted: boolean;
 }
 
