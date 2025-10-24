@@ -32,10 +32,10 @@ export interface VacationEntry {
 }
 
 export interface WorkSession {
-  startTime: Date;
+  startTime: string; // ISO datetime string
   pausedTime: number; // total paused time in milliseconds
   isPaused: boolean;
-  pauseStartTime?: Date;
+  pauseStartTime?: string; // ISO datetime string
 }
 
 export interface SummaryData {
@@ -44,5 +44,5 @@ export interface SummaryData {
   remainingVacationDays: number;
   expectedHoursPerWeek: number;
   currentWeekHours: number;
-  overtimeHours: number;
+  overtimeHours: number; // in milliseconds
 }

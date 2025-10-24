@@ -3,14 +3,18 @@ import Table from 'cli-table3';
 import open from 'open';
 import fs from 'fs/promises';
 import { createObjectCsvWriter } from 'csv-writer';
-import { Config, SummaryData } from './types.js';
+import { Config, SummaryData, TimeEntry } from './types.js';
 import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
 import {
   calculateWorkingTime,
   dayjs,
-  getCurrentDateTime,
   isValidDateString,
+  getWeekStart,
+  getWeekEnd,
+  isDateInWeekRange,
+  FORMAT_HH_MM,
+  FORMAT_TIME,
 } from './date-utils.js';
 
 export class SummaryManager {
@@ -34,10 +38,10 @@ export class SummaryManager {
     });
 
     table.push(
-      ['Total Hours Worked', this.formatHours(summaryData.totalHoursWorked)],
+      ['Total Hours Worked', dayjs.duration(summaryData.totalHoursWorked).format(FORMAT_TIME)],
       ['Expected Hours/Week', `${summaryData.expectedHoursPerWeek.toFixed(1)}h`],
-      ['Current Week Hours', this.formatHours(summaryData.currentWeekHours)],
-      ['Overtime Hours', this.formatHours(summaryData.overtimeHours)],
+      ['Current Week Hours', dayjs.duration(summaryData.currentWeekHours).format(FORMAT_TIME)],
+      ['Overtime Hours', this.formatHours(summaryData.overtimeHours)], // in 0.0h
       ['Vacation Days Used', `${summaryData.totalVacationDays}`],
       ['Vacation Days Remaining', `${summaryData.remainingVacationDays}`]
     );
@@ -48,19 +52,16 @@ export class SummaryManager {
 
   async showWeeklySummary(): Promise<void> {
     const timeEntries = await this.dataManager.loadTimeEntries();
-    const nowTz = getCurrentDateTime(this.config.timezone); // Day.js instance in correct TZ
-
-    const weekStart = nowTz.startOf('isoWeek');
-    const weekEnd = nowTz.endOf('isoWeek');
-
+    const now = dayjs();
+    const weekStart = getWeekStart(now);
+    const weekEnd = getWeekEnd(now);
     const weeklyEntries = timeEntries.filter((entry) => {
-      if (!isValidDateString(entry.date)) return false;
-      const entryDate = dayjs(entry.date).tz(this.config.timezone);
-      return (
-        entryDate.isSame(weekStart, 'day') ||
-        entryDate.isSame(weekEnd, 'day') ||
-        (entryDate.isAfter(weekStart) && entryDate.isBefore(weekEnd))
-      );
+      if (!isValidDateString(entry.date)) {
+        return false;
+      }
+      const entryDate = dayjs(entry.date);
+
+      return isDateInWeekRange(weekStart, weekEnd, entryDate);
     });
 
     console.log(
@@ -86,10 +87,10 @@ export class SummaryManager {
     });
 
     let totalWeeklyHours = 0;
+    const entriesByDate = new Map<string, TimeEntry[]>();
 
-    const entriesByDate = new Map<string, typeof weeklyEntries>();
     weeklyEntries.forEach((entry) => {
-      const dateKey = dayjs(entry.date).tz(this.config.timezone).format('YYYY-MM-DD');
+      const dateKey = dayjs(entry.date).format();
       if (!entriesByDate.has(dateKey)) {
         entriesByDate.set(dateKey, []);
       }
@@ -106,10 +107,13 @@ export class SummaryManager {
 
         const startTime = dayjs(entry.startTime);
         const endTime = dayjs(entry.endTime);
-        const breakTimeMs = (entry.pauseTime || 0) * 60 * 1000;
+        const breakTimeMs = dayjs.duration(entry.pauseTime || 0, 'minutes').asMilliseconds();
         const diffMs = endTime.diff(startTime) - breakTimeMs;
 
-        if (!Number.isFinite(diffMs) || diffMs < 0) return;
+        if (!Number.isFinite(diffMs) || diffMs < 0) {
+          return;
+        }
+
         dailyTotal += diffMs;
         hasValidEntries = true;
       });
@@ -132,10 +136,10 @@ export class SummaryManager {
 
         table.push([
           dayjs(dateKey).format('MMM Do'),
-          dayjs(firstEntry.startTime).format('HH:mm'),
-          dayjs(lastEntry.endTime!).format('HH:mm'),
+          dayjs(firstEntry.startTime).tz(this.config.timezone).format(FORMAT_HH_MM),
+          dayjs(lastEntry.endTime!).tz(this.config.timezone).format(FORMAT_HH_MM),
           `${totalBreakTime}m`,
-          this.formatHours(dailyTotal),
+          dayjs.duration(dailyTotal).format(FORMAT_HH_MM),
         ]);
       }
     });
@@ -189,9 +193,9 @@ export class SummaryManager {
 
   private async calculateSummaryData(): Promise<SummaryData> {
     const timeEntries = await this.dataManager.loadTimeEntries();
-    const nowTz = getCurrentDateTime(this.config.timezone);
-    const weekStart = nowTz.startOf('isoWeek');
-    const weekEnd = nowTz.endOf('isoWeek');
+    const now = dayjs();
+    const weekStart = getWeekStart(now);
+    const weekEnd = getWeekEnd(now);
 
     let totalHoursWorked = 0;
     let currentWeekHours = 0;

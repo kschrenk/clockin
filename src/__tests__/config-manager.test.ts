@@ -11,8 +11,6 @@ describe('ConfigManager', () => {
     // Read test directories from environment (set via .env.test loaded by Vitest)
     testGlobalConfigDir = process.env.CLOCKIN_CONFIG_PATH!;
 
-    console.log('🚀', { testGlobalConfigDir });
-
     // Clean up before each test to ensure isolation
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
