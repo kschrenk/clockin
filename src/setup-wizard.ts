@@ -3,7 +3,6 @@ import chalk from 'chalk';
 
 import { Config, WorkingDay } from './types.js';
 import { ConfigManager } from './config-manager.js';
-import { getDataDirectory } from './helper/getDataDirectory.js';
 
 export class SetupWizard {
   private configManager: ConfigManager;
@@ -75,6 +74,7 @@ export class SetupWizard {
 
     const timezone = await this.collectTimezone();
     const workingDays = await this.collectWorkingDays();
+    const dataDirectory = await this.collectDataDirectory();
 
     return {
       name: answers.name,
@@ -83,7 +83,7 @@ export class SetupWizard {
       timezone,
       workingDays,
       setupCompleted: false,
-      dataDirectory: getDataDirectory(process.env.CLOCKIN_CONFIG_PATH),
+      dataDirectory,
     };
   }
 
@@ -172,6 +172,11 @@ export class SetupWizard {
     }
 
     return workingDays;
+  }
+
+  private async collectDataDirectory(): Promise<string> {
+    const configManager = new ConfigManager();
+    return configManager.getDataDirectory();
   }
 
   private displaySummary(config: Config): void {
