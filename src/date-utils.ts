@@ -4,6 +4,7 @@ import timezone from 'dayjs/plugin/timezone.js';
 import advancedFormat from 'dayjs/plugin/advancedFormat.js';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
 import duration from 'dayjs/plugin/duration.js';
+import { WorkSession } from './types';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -61,6 +62,45 @@ export function isDateInWeekRange(weekStart: Dayjs, weekEnd: Dayjs, date: Dayjs)
     date.isSame(weekEnd, 'day') ||
     (date.isAfter(weekStart) && date.isBefore(weekEnd))
   );
+}
+
+/**
+ * Returns the pause duration in milliseconds between now and the given pauseStartTime.
+ * If pauseStartTime is undefined or invalid, returns 0.
+ */
+export function getPauseDurationMs(now: Dayjs, pauseStartTime: string): number {
+  const start = dayjs(pauseStartTime);
+  if (!start.isValid()) return 0;
+
+  return now.diff(start);
+}
+
+/**
+ * Calculates the elapsed time in milliseconds for a work session, accounting for paused periods.
+ * @param session - The work session object containing start time, paused time, and pause status.
+ * @param now - The current dayjs instance.
+ * @returns The elapsed time in milliseconds.
+ */
+export function calculateElapsedMs(session: WorkSession, now: Dayjs): number {
+  let elapsedMs = now.valueOf() - dayjs(session.startTime).valueOf() - session.pausedTime;
+  if (session.isPaused && session.pauseStartTime) {
+    elapsedMs -= now.valueOf() - dayjs(session.pauseStartTime).valueOf();
+  }
+  return elapsedMs;
+}
+
+/**
+ * Calculates the current total paused time in milliseconds for a work session, including any ongoing pause.
+ * @param session - The work session object containing paused time and pause status.
+ * @param now - The current dayjs instance.
+ * @returns The total paused time in milliseconds.
+ */
+export function calculateCurrentPausedTime(session: WorkSession, now: Dayjs): number {
+  let currentPausedTime = session.pausedTime;
+  if (session.isPaused && session.pauseStartTime) {
+    currentPausedTime += getPauseDurationMs(now, session.pauseStartTime);
+  }
+  return currentPausedTime;
 }
 
 export { dayjs };
