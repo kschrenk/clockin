@@ -269,11 +269,7 @@ program
         'PATH',
         'TERM',
         'LANG',
-        'TZ',
-        'CLOCKIN_CONFIG_DIR',
-        'CLOCKIN_DATA_DIR',
-        'XDG_CONFIG_HOME',
-        'XDG_DATA_HOME',
+        'CLOCKIN_CONFIG_PATH',
       ];
 
       relevantEnvVars.forEach((varName) => {
@@ -319,12 +315,10 @@ program
         const configFilePath = configManager.getDataDirectoryConfigFilePath();
 
         // Check if paths exist
-        let globalExists = 'No';
         let currentExists = 'No';
 
         try {
           await fs.access(currentDataDir);
-          globalExists = 'Yes';
         } catch (error) {
           // Directory doesn't exist
         }

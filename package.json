@@ -8,8 +8,7 @@
     "clockin": "./dist/bin/clockin.js"
   },
   "scripts": {
-    "build": "tsc && pnpm run copy-env",
-    "copy-env": "cp .env dist/.env 2>/dev/null || true",
+    "build": "tsc",
     "dev": "NODE_ENV=development tsx src/bin/clockin.ts",
     "start": "node dist/bin/clockin.js",
     "test": "vitest",
@@ -19,7 +18,8 @@
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "clean": "pnpm store prune"
   },
   "keywords": [
     "cli",

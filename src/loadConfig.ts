@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+import os from 'os';
+import path from 'path';
 
 export function loadConfig() {
   if (!process.env.VITEST) {
@@ -7,7 +9,7 @@ export function loadConfig() {
     if (isDevelopment) {
       dotenv.config({ path: '.env.local' });
     } else {
-      dotenv.config({ path: '.env', quiet: true });
+      dotenv.config({ path: path.join(os.homedir(), '.clockin/.env'), quiet: false });
     }
   }
 }
