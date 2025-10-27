@@ -5,7 +5,6 @@ import {
   dayjs,
   formatInTz,
   calculateWorkingTime,
-  FORMAT_DATE,
   isValidDateString,
   FORMAT_TIME,
   getPauseDurationMs,
