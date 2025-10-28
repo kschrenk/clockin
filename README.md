@@ -68,12 +68,36 @@ A summary is shown for confirmation. If you reject it, the wizard restarts.
 
 Config file location: `~/.clockin/config.json`
 Data CSV directory (default): `~/clockin-data`
+Environment file location (if used): `~/.clockin/.env`
 
 To re-run setup later:
 
 ```zsh
 clockin setup
 ```
+
+## Environment Configuration (.env)
+
+You can override paths and other settings via an environment file located in your global config directory (`~/.clockin`). The CLI looks for a `.env` file **inside `~/.clockin`**.
+
+1. Copy the example file provided in the repository:
+   ```zsh
+   cp .env.example ~/.clockin/.env
+   ```
+2. Edit `~/.clockin/.env` and set absolute paths:
+   ```dotenv
+   # Path to the global config directory (defaults to $HOME/.clockin if unset)
+   CLOCKIN_CONFIG_PATH=/Users/yourname/.clockin
+
+   # Path to the data directory (defaults to $HOME/clockin-data if unset)
+   CLOCKIN_DATA_PATH=/Users/yourname/clockin-data
+   ```
+3. (Optional) Restart your terminal session if you rely on shell expansion, or just run the commands again.
+
+Notes:
+- Use full absolute paths (the app does not expand `~`).
+- If variables are omitted, built-in defaults are used.
+- The setup wizard can still create initial directories; environment values override defaults.
 
 ## Usage & Commands
 
