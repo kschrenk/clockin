@@ -9,7 +9,7 @@ import {
   FORMAT_TIME,
   getPauseDurationMs,
   calculateElapsedMs,
-  calculateCurrentPausedTime,
+  calculateCurrentPausedTimeMs,
 } from './date-utils.js';
 import { Config, TimeEntry, WorkSession } from './types.js';
 import { DataManager } from './data-manager.js';
@@ -100,24 +100,22 @@ export class TimeTracker {
     }
 
     const endTime = dayjs();
-    const totalPausedTimeMs = calculateCurrentPausedTime(session, endTime);
+    const totalPausedTimeMs = calculateCurrentPausedTimeMs(session, endTime);
+    const pauseTime = dayjs.duration(totalPausedTimeMs).asMinutes();
     const timeEntry: TimeEntry = {
       id: this.generateId(),
       date: formatInTz(session.startTime, this.config.timezone, 'YYYY-MM-DD'),
       startTime: dayjs(session.startTime).toISOString(),
       endTime: endTime.toISOString(),
-      pauseTime: dayjs.duration(totalPausedTimeMs).asMinutes(),
+      pauseTime,
       type: 'work',
     };
 
     await this.dataManager.saveTimeEntry(timeEntry);
     await this.clearCurrentSession();
 
-    const workingHours = calculateWorkingTime(
-      session.startTime,
-      endTime.toISOString(),
-      totalPausedTimeMs
-    );
+    const workingHours = calculateWorkingTime(session.startTime, endTime.toISOString(), pauseTime);
+
     console.log(chalk.green('\ud83d\uded1 Stopped tracking time!'));
     console.log(
       chalk.cyan(`Total working time: ${dayjs.duration(workingHours).format(FORMAT_TIME)}`)
@@ -172,7 +170,7 @@ export class TimeTracker {
         )
       );
 
-      const currentPausedTime = calculateCurrentPausedTime(session, now);
+      const currentPausedTime = calculateCurrentPausedTimeMs(session, now);
       const pausedTimeFormatted = dayjs.duration(currentPausedTime).format(FORMAT_TIME);
 
       console.log(chalk.magenta(`⏸️  Total Paused: ${pausedTimeFormatted}`));

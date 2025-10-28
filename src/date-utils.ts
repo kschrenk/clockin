@@ -50,7 +50,7 @@ export function calculateWorkingTime(
   if (!isValidDateString(startTime) || !isValidDateString(endTime)) return 0;
   const start = dayjs(startTime);
   const end = dayjs(endTime);
-  const pauseTimeMs = pauseTimeMinutes * 60 * 1000;
+  const pauseTimeMs = dayjs.duration(pauseTimeMinutes, 'minutes').asMilliseconds();
   const workingMs = end.diff(start) - pauseTimeMs;
 
   return Number.isFinite(workingMs) && workingMs > 0 ? workingMs : 0;
@@ -95,12 +95,12 @@ export function calculateElapsedMs(session: WorkSession, now: Dayjs): number {
  * @param now - The current dayjs instance.
  * @returns The total paused time in milliseconds.
  */
-export function calculateCurrentPausedTime(session: WorkSession, now: Dayjs): number {
-  let currentPausedTime = session.pausedTime;
+export function calculateCurrentPausedTimeMs(session: WorkSession, now: Dayjs): number {
+  let currentPausedTimeMs = session.pausedTime;
   if (session.isPaused && session.pauseStartTime) {
-    currentPausedTime += getPauseDurationMs(now, session.pauseStartTime);
+    currentPausedTimeMs += getPauseDurationMs(now, session.pauseStartTime);
   }
-  return currentPausedTime;
+  return currentPausedTimeMs;
 }
 
 export { dayjs };

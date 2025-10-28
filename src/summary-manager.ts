@@ -132,13 +132,16 @@ export class SummaryManager {
           dayjs(entry.endTime!).isAfter(dayjs(latest.endTime!)) ? entry : latest
         );
 
-        const totalBreakTime = dayEntries.reduce((sum, entry) => sum + (entry.pauseTime || 0), 0);
+        const totalBreakTimeMinutes = dayEntries.reduce(
+          (sum, entry) => sum + (entry.pauseTime || 0),
+          0
+        );
 
         table.push([
           dayjs(dateKey).format('MMM Do'),
           dayjs(firstEntry.startTime).tz(this.config.timezone).format(FORMAT_HH_MM),
           dayjs(lastEntry.endTime!).tz(this.config.timezone).format(FORMAT_HH_MM),
-          `${totalBreakTime}m`,
+          `${totalBreakTimeMinutes}m`,
           dayjs.duration(dailyTotal).format(FORMAT_HH_MM),
         ]);
       }
