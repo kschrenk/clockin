@@ -38,9 +38,9 @@ export class SummaryManager {
     });
 
     table.push(
-      ['Total Hours Worked', dayjs.duration(summaryData.totalHoursWorked).format(FORMAT_TIME)],
-      ['Expected Hours/Week', `${summaryData.expectedHoursPerWeek.toFixed(1)}h`],
-      ['Current Week Hours', dayjs.duration(summaryData.currentWeekHours).format(FORMAT_TIME)],
+      ['Total Hours Worked', dayjs.duration(summaryData.totalHoursWorked).asHours().toFixed(1)],
+      ['Expected Hours/Week', summaryData.expectedHoursPerWeek.toFixed(1)],
+      ['Current Week Hours', dayjs.duration(summaryData.currentWeekHours).asHours().toFixed(1)],
       ['Overtime Hours', this.formatHours(summaryData.overtimeHours)], // in 0.0h
       ['Vacation Days Used', `${summaryData.totalVacationDays}`],
       ['Vacation Days Remaining', `${summaryData.remainingVacationDays}`]
@@ -196,6 +196,8 @@ export class SummaryManager {
 
   private async calculateSummaryData(): Promise<SummaryData> {
     const timeEntries = await this.dataManager.loadTimeEntries();
+    // const vacationEntries = await this.vacationManager.loadVacationEntries();
+
     const now = dayjs();
     const weekStart = getWeekStart(now);
     const weekEnd = getWeekEnd(now);
