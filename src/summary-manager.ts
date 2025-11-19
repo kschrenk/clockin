@@ -13,9 +13,52 @@ import {
   getWeekStart,
   getWeekEnd,
   isDateInWeekRange,
-  FORMAT_HH_MM,
-  FORMAT_TIME,
+  FORMAT_DATE,
+  FORMAT_DATE_DAY,
 } from './date-utils.js';
+import { Dayjs } from 'dayjs';
+
+// Exported interfaces for testability (JSON mode)
+export interface WeeklySummaryRow {
+  date: string;
+  displayDate: string;
+  start: string | null;
+  end: string | null;
+  breakMinutes: number | null;
+  hoursMs: number;
+  hoursFormatted: string;
+  entryType: string; // work | vacation | other
+  timeEntries?: TimeEntry[];
+  isVacation?: boolean;
+}
+
+export interface WeeklySummaryResult {
+  weekStart: string;
+  weekEnd: string;
+  rows: WeeklySummaryRow[];
+  totalWeeklyHoursMs: number;
+  totalWeeklyHoursFormatted: string;
+  expectedWeeklyHours: number;
+  differenceHours: number;
+  differenceFormatted: string;
+  overtime: boolean;
+  undertime: boolean;
+}
+
+function isTimeEntry(obj: unknown): obj is TimeEntry {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'date' in obj &&
+    'startTime' in obj &&
+    'endTime' in obj &&
+    'type' in obj
+  );
+}
+
+function isDayjs(obj: unknown): obj is Dayjs {
+  return dayjs.isDayjs(obj);
+}
 
 export class SummaryManager {
   private config: Config;
@@ -50,27 +93,117 @@ export class SummaryManager {
     console.log();
   }
 
-  async showWeeklySummary(): Promise<void> {
-    const timeEntries = await this.dataManager.loadTimeEntries();
+  async showWeeklySummary(
+    options: { format?: 'table' | 'json' } = {}
+  ): Promise<void | WeeklySummaryResult> {
+    const outputFormat = options.format || 'table';
     const now = dayjs();
     const weekStart = getWeekStart(now);
     const weekEnd = getWeekEnd(now);
-    const weeklyEntries = timeEntries.filter((entry) => {
-      if (!isValidDateString(entry.date)) {
-        return false;
-      }
-      const entryDate = dayjs(entry.date);
 
-      return isDateInWeekRange(weekStart, weekEnd, entryDate);
-    });
+    const weeklyTimeEntries = await this.getWeeklyTimeEntries(weekStart, weekEnd, now);
+    const weeklyVacationDates = await this.getWeeklyVacationEntries(weekStart, weekEnd, now);
+
+    const rows: WeeklySummaryRow[] = [];
+
+    // Only iterate over configured working days within the calendar week
+    let cursor = weekStart;
+    const workingDayNames = new Set(
+      this.config.workingDays.filter((d) => d.isWorkingDay).map((d) => d.day.toLowerCase())
+    );
+
+    while (cursor.isSameOrBefore(weekEnd, 'day')) {
+      const weekday = cursor.format('dddd').toLowerCase();
+      if (workingDayNames.has(weekday)) {
+        const dateKey = cursor.format(FORMAT_DATE);
+        const displayDate = cursor.format('MMM Do');
+
+        const dayTimeEntries = weeklyTimeEntries.filter((e) => dayjs(e.date).isSame(cursor, 'day'));
+        const isVacationDay = weeklyVacationDates.some((d) => d.isSame(cursor, 'day'));
+
+        // Vacation row (if vacation covers this day)
+        if (isVacationDay) {
+          const workingHoursPerDay = this.calculateWorkingHoursPerDay();
+          const vacHoursMs = dayjs.duration(workingHoursPerDay, 'hours').asMilliseconds();
+          rows.push({
+            date: dateKey,
+            displayDate,
+            start: null,
+            end: null,
+            breakMinutes: null,
+            hoursMs: vacHoursMs,
+            hoursFormatted: dayjs.duration(vacHoursMs).format('HH:mm'),
+            entryType: 'vacation',
+            isVacation: true,
+          });
+        }
+
+        if (dayTimeEntries.length > 0) {
+          // Aggregate work entries into a single row for the day
+          let dailyTotalMs = 0;
+          let totalBreakMinutes = 0;
+          dayTimeEntries.forEach((e) => {
+            const ms = calculateWorkingTime(e.startTime, e.endTime, e.pauseTime);
+            if (ms > 0) dailyTotalMs += ms;
+            totalBreakMinutes += e.pauseTime || 0;
+          });
+          const firstEntry = dayTimeEntries[0];
+          const lastEntry = dayTimeEntries[dayTimeEntries.length - 1];
+          rows.push({
+            date: dateKey,
+            displayDate,
+            start: firstEntry
+              ? dayjs(firstEntry.startTime).tz(this.config.timezone).format('HH:mm')
+              : null,
+            end:
+              lastEntry && lastEntry.endTime
+                ? dayjs(lastEntry.endTime).tz(this.config.timezone).format('HH:mm')
+                : null,
+            breakMinutes: totalBreakMinutes,
+            hoursMs: dailyTotalMs,
+            hoursFormatted: dayjs.duration(dailyTotalMs).format('HH:mm'),
+            entryType: firstEntry ? firstEntry.type : 'work',
+            timeEntries: dayTimeEntries,
+            isVacation: isVacationDay || false,
+          });
+        }
+      }
+      cursor = cursor.add(1, 'day');
+    }
+
+    const totalWeeklyHoursMs = rows.reduce((sum, r) => sum + r.hoursMs, 0);
+    const expectedWeeklyHours = this.config.hoursPerWeek;
+    const totalWeeklyHoursFormatted = dayjs.duration(totalWeeklyHoursMs).format('HH:mm');
+    const differenceHours = totalWeeklyHoursMs / 3_600_000 - expectedWeeklyHours;
+    const differenceFormatted = `${differenceHours >= 0 ? '+' : ''}${differenceHours.toFixed(1)}h`;
+    const overtime = differenceHours > 0;
+    const undertime = differenceHours < 0;
+
+    const result: WeeklySummaryResult = {
+      weekStart: weekStart.format(FORMAT_DATE),
+      weekEnd: weekEnd.format(FORMAT_DATE),
+      rows,
+      totalWeeklyHoursMs,
+      totalWeeklyHoursFormatted,
+      expectedWeeklyHours,
+      differenceHours,
+      differenceFormatted,
+      overtime,
+      undertime,
+    };
+
+    if (outputFormat === 'json') {
+      // Return structured data for tests (no console output besides optional JSON string)
+      return result;
+    }
 
     console.log(
       chalk.blue.bold(
-        `\n\ud83d\udcc5 Weekly Summary (${weekStart.format('MMM Do')} - ${weekEnd.format('MMM Do, YYYY')})\n`
+        `\n\ud83d\udcc5 Weekly Summary (${weekStart.format(FORMAT_DATE_DAY)} - ${weekEnd.format('MMM Do, YYYY')})\n`
       )
     );
 
-    if (weeklyEntries.length === 0) {
+    if (rows.length === 0) {
       console.log(chalk.yellow('No time entries found for this week.'));
       return;
     }
@@ -82,85 +215,81 @@ export class SummaryManager {
         chalk.cyan('End'),
         chalk.cyan('Break'),
         chalk.cyan('Hours'),
+        chalk.cyan('Type'),
       ],
-      colWidths: [15, 10, 10, 10, 10],
+      colWidths: [15, 10, 10, 10, 10, 15],
     });
 
-    let totalWeeklyHours = 0;
-    const entriesByDate = new Map<string, TimeEntry[]>();
-
-    weeklyEntries.forEach((entry) => {
-      const dateKey = dayjs(entry.date).format();
-      if (!entriesByDate.has(dateKey)) {
-        entriesByDate.set(dateKey, []);
-      }
-      entriesByDate.get(dateKey)?.push(entry);
-    });
-
-    entriesByDate.forEach((dayEntries, dateKey) => {
-      let dailyTotal = 0;
-      let hasValidEntries = false;
-
-      dayEntries.forEach((entry) => {
-        if (!entry.endTime) return;
-        if (!isValidDateString(entry.startTime) || !isValidDateString(entry.endTime)) return;
-
-        const startTime = dayjs(entry.startTime);
-        const endTime = dayjs(entry.endTime);
-        const breakTimeMs = dayjs.duration(entry.pauseTime || 0, 'minutes').asMilliseconds();
-        const diffMs = endTime.diff(startTime) - breakTimeMs;
-
-        if (!Number.isFinite(diffMs) || diffMs < 0) {
-          return;
-        }
-
-        dailyTotal += diffMs;
-        hasValidEntries = true;
-      });
-
-      if (hasValidEntries) {
-        totalWeeklyHours += dailyTotal;
-
-        // Show first and last entry times for the day
-        const validEntries = dayEntries.filter(
-          (e) => e.endTime && isValidDateString(e.startTime) && isValidDateString(e.endTime)
-        );
-        const firstEntry = validEntries.reduce((earliest, entry) =>
-          dayjs(entry.startTime).isBefore(dayjs(earliest.startTime)) ? entry : earliest
-        );
-        const lastEntry = validEntries.reduce((latest, entry) =>
-          dayjs(entry.endTime!).isAfter(dayjs(latest.endTime!)) ? entry : latest
-        );
-
-        const totalBreakTimeMinutes = dayEntries.reduce(
-          (sum, entry) => sum + (entry.pauseTime || 0),
-          0
-        );
-
-        table.push([
-          dayjs(dateKey).format('MMM Do'),
-          dayjs(firstEntry.startTime).tz(this.config.timezone).format(FORMAT_HH_MM),
-          dayjs(lastEntry.endTime!).tz(this.config.timezone).format(FORMAT_HH_MM),
-          `${totalBreakTimeMinutes}m`,
-          dayjs.duration(dailyTotal).format(FORMAT_HH_MM),
-        ]);
-      }
+    rows.forEach((r) => {
+      table.push([
+        r.displayDate,
+        r.start || '-',
+        r.end || '-',
+        r.breakMinutes !== null ? `${r.breakMinutes}m` : '-',
+        r.hoursFormatted,
+        r.entryType,
+      ]);
     });
 
     console.log(table.toString());
-    console.log(chalk.cyan(`\nTotal weekly hours: ${this.formatHours(totalWeeklyHours)}`));
-    console.log(chalk.cyan(`Expected weekly hours: ${this.config.hoursPerWeek}h`));
-
-    const difference = totalWeeklyHours / 3_600_000 - this.config.hoursPerWeek;
-    if (difference > 0) {
-      console.log(chalk.green(`Overtime: +${difference.toFixed(1)}h`));
-    } else if (difference < 0) {
-      console.log(chalk.yellow(`Under time: ${difference.toFixed(1)}h`));
+    console.log(chalk.cyan(`\nTotal weekly hours: ${this.formatHours(totalWeeklyHoursMs)}`));
+    console.log(chalk.cyan(`Expected weekly hours: ${expectedWeeklyHours}h`));
+    if (overtime) {
+      console.log(chalk.green(`Overtime: ${differenceFormatted}`));
+    } else if (undertime) {
+      console.log(chalk.yellow(`Under time: ${differenceFormatted}`));
     } else {
       console.log(chalk.blue('Exactly on target! \ud83c\udfaf'));
     }
     console.log();
   }
+
+  private getWeeklyTimeEntries = async (weekStart: Dayjs, weekEnd: Dayjs, now?: Dayjs) => {
+    const timeEntries = await this.dataManager.loadTimeEntries();
+
+    return timeEntries.filter((entry) => {
+      if (!isValidDateString(entry.date)) {
+        return false;
+      }
+
+      const entryDate = dayjs(entry.date);
+      const isDateInRange = isDateInWeekRange(weekStart, weekEnd, entryDate);
+
+      if (now) {
+        return isDateInRange && entryDate.isSameOrBefore(now);
+      }
+
+      return isDateInRange;
+    });
+  };
+
+  private getWeeklyVacationEntries = async (
+    weekStart: Dayjs,
+    weekEnd: Dayjs,
+    now?: Dayjs
+  ): Promise<Dayjs[]> => {
+    const vacationEntries = await this.dataManager.loadVacationEntries();
+    const vacationDates: Dayjs[] = [];
+
+    vacationEntries.forEach((entry) => {
+      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) {
+        return;
+      }
+      const entryStartDate = dayjs(entry.startDate);
+      const entryEndDate = dayjs(entry.endDate);
+      let cursor = entryStartDate;
+      while (isDateInWeekRange(weekStart, weekEnd, cursor) && cursor.isSameOrBefore(entryEndDate)) {
+        vacationDates.push(cursor);
+        cursor = cursor.add(1, 'day');
+      }
+    });
+
+    if (now) {
+      return vacationDates.filter((date) => date.isSameOrBefore(now));
+    }
+
+    return vacationDates;
+  };
 
   async openCsvFile(): Promise<void> {
     const csvPath = this.dataManager.getTimeEntriesPath();
@@ -196,7 +325,6 @@ export class SummaryManager {
 
   private async calculateSummaryData(): Promise<SummaryData> {
     const timeEntries = await this.dataManager.loadTimeEntries();
-    // const vacationEntries = await this.vacationManager.loadVacationEntries();
 
     const now = dayjs();
     const weekStart = getWeekStart(now);
@@ -244,5 +372,10 @@ export class SummaryManager {
     if (!Number.isFinite(milliseconds) || milliseconds <= 0) return '0.0h';
     const hours = milliseconds / 3_600_000;
     return `${hours.toFixed(1)}h`;
+  }
+
+  private calculateWorkingHoursPerDay(): number {
+    const workingDaysCount = this.config.workingDays.filter((day) => day.isWorkingDay).length;
+    return workingDaysCount > 0 ? this.config.hoursPerWeek / workingDaysCount : 0;
   }
 }

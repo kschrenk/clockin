@@ -89,6 +89,7 @@ program
   .description('Show work summary')
   .option('-w, --week', 'Show weekly summary')
   .option('-c, --csv', 'Open CSV file with time data')
+  .option('-j, --json', 'Output weekly summary as JSON (use with --week)')
   .action(async (options) => {
     try {
       const config = await ensureSetup();
@@ -97,7 +98,12 @@ program
       if (options.csv) {
         await summaryManager.openCsvFile();
       } else if (options.week) {
-        await summaryManager.showWeeklySummary();
+        if (options.json) {
+          const result = await summaryManager.showWeeklySummary({ format: 'json' });
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          await summaryManager.showWeeklySummary();
+        }
       } else {
         await summaryManager.showSummary();
       }

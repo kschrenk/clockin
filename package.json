@@ -11,7 +11,7 @@
     "build": "tsc",
     "dev": "NODE_ENV=development tsx src/bin/clockin.ts",
     "start": "node dist/bin/clockin.js",
-    "test": "vitest",
+    "test": "vitest --run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
     "lint": "eslint src/**/*.ts",

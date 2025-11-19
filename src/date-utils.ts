@@ -4,6 +4,8 @@ import timezone from 'dayjs/plugin/timezone.js';
 import advancedFormat from 'dayjs/plugin/advancedFormat.js';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
 import duration from 'dayjs/plugin/duration.js';
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js';
+
 import { WorkSession } from './types';
 
 dayjs.extend(utc);
@@ -11,10 +13,12 @@ dayjs.extend(timezone);
 dayjs.extend(advancedFormat);
 dayjs.extend(isoWeek);
 dayjs.extend(duration);
+dayjs.extend(isSameOrBefore);
 
 export const FORMAT_DATE = 'YYYY-MM-DD';
 export const FORMAT_TIME = 'HH:mm:ss';
 export const FORMAT_HH_MM = 'HH:mm';
+export const FORMAT_DATE_DAY = 'MMM Do';
 
 export function formatInTz(date: Date | string | number, tz: string, pattern: string): string {
   return dayjs(date).tz(tz).format(pattern);
@@ -44,10 +48,11 @@ export function isValidDateString(dateString?: string): boolean {
 
 export function calculateWorkingTime(
   startTime: string,
-  endTime: string,
+  endTime?: string,
   pauseTimeMinutes: number = 0
 ): number {
   if (!isValidDateString(startTime) || !isValidDateString(endTime)) return 0;
+
   const start = dayjs(startTime);
   const end = dayjs(endTime);
   const pauseTimeMs = dayjs.duration(pauseTimeMinutes, 'minutes').asMilliseconds();
