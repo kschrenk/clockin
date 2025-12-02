@@ -3,17 +3,19 @@ import path from 'path';
 import csv from 'csv-parser';
 import { createObjectCsvWriter } from 'csv-writer';
 import { createReadStream } from 'fs';
-import { TimeEntry, VacationEntry, Config } from './types.js';
+import { TimeEntry, VacationEntry, SickEntry, Config } from './types.js';
 
 export class DataManager {
   private config: Config;
-  private timeEntriesPath: string;
-  private vacationEntriesPath: string;
+  private readonly timeEntriesPath: string;
+  private readonly vacationEntriesPath: string;
+  private readonly sickEntriesPath: string;
 
   constructor(config: Config) {
     this.config = config;
     this.timeEntriesPath = path.join(config.dataDirectory, 'time-entries.csv');
     this.vacationEntriesPath = path.join(config.dataDirectory, 'vacation-entries.csv');
+    this.sickEntriesPath = path.join(config.dataDirectory, 'sick-entries.csv');
   }
 
   async ensureDataDirectory(): Promise<void> {
@@ -134,6 +136,58 @@ export class DataManager {
     await csvWriter.writeRecords([entry]);
   }
 
+  async loadSickEntries(): Promise<SickEntry[]> {
+    await this.ensureDataDirectory();
+
+    try {
+      await fs.access(this.sickEntriesPath);
+    } catch {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const entries: SickEntry[] = [];
+      createReadStream(this.sickEntriesPath)
+        .pipe(csv())
+        .on('data', (data) => {
+          try {
+            const daysRaw = data.days || data.Days;
+            const entry: SickEntry = {
+              id: data.id || data.ID,
+              startDate: data.startDate || data['Start Date'],
+              endDate: data.endDate || data['End Date'],
+              days: typeof daysRaw === 'number' ? daysRaw : parseFloat(daysRaw),
+              description: data.description || data.Description || undefined,
+            };
+            entries.push(entry);
+          } catch (e) {
+            reject(e);
+          }
+        })
+        .on('end', () => resolve(entries))
+        .on('error', reject);
+    });
+  }
+
+  async saveSickEntry(entry: SickEntry): Promise<void> {
+    await this.ensureDataDirectory();
+
+    const fileExists = await this.fileExists(this.sickEntriesPath);
+    const csvWriter = createObjectCsvWriter({
+      path: this.sickEntriesPath,
+      header: [
+        { id: 'id', title: 'ID' },
+        { id: 'startDate', title: 'Start Date' },
+        { id: 'endDate', title: 'End Date' },
+        { id: 'days', title: 'Days' },
+        { id: 'description', title: 'Description' },
+      ],
+      append: fileExists,
+    });
+
+    await csvWriter.writeRecords([entry]);
+  }
+
   private async fileExists(filePath: string): Promise<boolean> {
     try {
       await fs.access(filePath);
@@ -145,9 +199,5 @@ export class DataManager {
 
   getTimeEntriesPath(): string {
     return this.timeEntriesPath;
-  }
-
-  getVacationEntriesPath(): string {
-    return this.vacationEntriesPath;
   }
 }

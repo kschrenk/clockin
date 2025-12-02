@@ -10,8 +10,10 @@ A colorful, user-friendly CLI to track working hours and vacation days locally u
 - Data stored locally as CSV (easy to inspect & back up)
 - Summaries (overall and weekly) with tables and color formatting
 - Open raw time CSV in your default viewer
-- Add vacation by number of days (supports fractional like 0.5) or by date range (skips non-working days)
+- Add vacation by number of days or by date range (skips non-working days)
+- Track sick days with optional descriptions
 - Track remaining vacation vs yearly allowance
+- Comprehensive leave management with separate vacation and sick day tracking
 
 ## Installation
 
@@ -138,14 +140,13 @@ clockin summary --csv     # Open raw CSV in default viewer
 
 ### Vacation Management
 
-Add vacation by number of working days (supports fractional days like 0.5 = half day):
+Add vacation by number of working days (whole days only):
 
 ```zsh
 clockin vacation add <days> [start_date]
 # Examples
-clockin vacation add 1            # today (first working day)
-clockin vacation add 0.5 2025-01-06  # half day on Jan 6, 2025
-clockin vacation add 2.5 2025-01-06  # 2 full days + half on the next working day
+clockin vacation add 1            # Add 1 vacation day starting today
+clockin vacation add 3 2025-01-15 # Add 3 vacation days starting Jan 15th
 ```
 
 If the start date is a non-working day, the next working day is used automatically.
@@ -157,6 +158,21 @@ clockin vacation range <start_date> <end_date>
 # Example
 clockin vacation range 2025-07-01 2025-07-10
 ```
+
+### Sick Days Management
+
+Add sick days with optional description and start date:
+
+```zsh
+clockin sick add <days> [description] [start_date]
+# Examples
+clockin sick add 1                          # Add 1 sick day starting today
+clockin sick add 2 "Flu"                    # Add 2 sick days with description
+clockin sick add 3 "Food poisoning" 2025-01-15  # Add 3 sick days starting Jan 15th
+clockin sick add 1 "" 2025-12-10            # Add 1 sick day on specific date (no description)
+```
+
+Sick days are tracked separately from vacation days and appear in both overall and weekly summaries. Unlike vacation days, **sick days use consecutive calendar days** (including weekends) since illness doesn't follow working day schedules. For example, if you're sick for 3 days starting Monday, it covers Monday, Tuesday, and Wednesday - regardless of whether any of those days are configured as working days.
 
 ### Live Timer (Detached)
 
@@ -189,7 +205,8 @@ clockin timer
 | File                   | Purpose                             |
 | ---------------------- | ----------------------------------- |
 | `time-entries.csv`     | Work sessions (start/end, pauses)   |
-| `vacation-entries.csv` | Vacation periods & fractional usage |
+| `vacation-entries.csv` | Vacation periods                    |
+| `sick-entries.csv`     | Sick leave periods with descriptions |
 
 Files are stored in your chosen data directory. Safe to back up with any sync tool.
 
@@ -232,7 +249,8 @@ clockin pause
 clockin resume
 clockin stop
 clockin summary --week
-clockin vacation add 0.5 2025-01-06
+clockin vacation add 3 2025-01-15
+clockin sick add 1 "Flu"
 ```
 
 Enjoy productive, transparent time tracking!

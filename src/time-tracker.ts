@@ -35,6 +35,51 @@ export class TimeTracker {
       return;
     }
 
+    // Check for conflicting leave entries on today's date
+    const today = dayjs();
+
+    // Check for vacation days
+    const vacationEntries = await this.dataManager.loadVacationEntries();
+    const hasVacationToday = vacationEntries.some((entry) => {
+      const entryStart = dayjs(entry.startDate);
+      const entryEnd = dayjs(entry.endDate);
+      return (
+        today.isSame(entryStart, 'day') ||
+        today.isSame(entryEnd, 'day') ||
+        (today.isAfter(entryStart, 'day') && today.isBefore(entryEnd, 'day'))
+      );
+    });
+
+    if (hasVacationToday) {
+      console.log(
+        chalk.red('\u274c Cannot start time tracking: vacation day scheduled for today.')
+      );
+      console.log(
+        chalk.gray('Remove the vacation entry or choose a different date to track time.')
+      );
+      return;
+    }
+
+    // Check for sick days
+    const sickEntries = await this.dataManager.loadSickEntries();
+    const hasSickDayToday = sickEntries.some((entry) => {
+      const entryStart = dayjs(entry.startDate);
+      const entryEnd = dayjs(entry.endDate);
+      return (
+        today.isSame(entryStart, 'day') ||
+        today.isSame(entryEnd, 'day') ||
+        (today.isAfter(entryStart, 'day') && today.isBefore(entryEnd, 'day'))
+      );
+    });
+
+    if (hasSickDayToday) {
+      console.log(chalk.red('\u274c Cannot start time tracking: sick day scheduled for today.'));
+      console.log(
+        chalk.gray('Remove the sick day entry or choose a different date to track time.')
+      );
+      return;
+    }
+
     const session: WorkSession = {
       startTime: dayjs().toISOString(),
       pausedTime: 0,

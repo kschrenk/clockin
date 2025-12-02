@@ -54,6 +54,39 @@ export class VacationManager extends BaseLeaveManager {
       return;
     }
 
+    // Check for overlapping sick days
+    if (await this.checkAndReportLeaveOverlap(workingDayDates, 'vacation', 'sick')) {
+      return;
+    }
+
+    /*
+     * TODO: The code loads vacation entries twice in the same method (lines 63 and duplicated in addVacationRange at line 134).
+     *  Consider caching the result or refactoring to avoid redundant data loading operations
+     */
+    // Check for overlapping vacation days (self-overlap detection)
+    const existingVacationEntries = await this.dataManager.loadVacationEntries();
+    const overlappingVacationDates = this.findOverlappingDates(
+      workingDayDates,
+      existingVacationEntries
+    );
+
+    if (overlappingVacationDates.length > 0) {
+      const dateStrings = overlappingVacationDates
+        .map((date) => date.format(FORMAT_DATE_DAY))
+        .join(', ');
+      console.log(
+        chalk.red(
+          `\u274c Cannot add vacation: vacation days already exist for ${dateStrings}. Please choose different dates or remove existing entries first.`
+        )
+      );
+      return;
+    }
+
+    // Check for existing time entries on these dates
+    if (await this.checkAndReportTimeEntryOverlap(workingDayDates, 'vacation')) {
+      return;
+    }
+
     const start = workingDayDates[0];
     const end = workingDayDates[workingDayDates.length - 1];
 
@@ -92,6 +125,36 @@ export class VacationManager extends BaseLeaveManager {
 
     if (workingDays.length === 0) {
       console.log(chalk.yellow('\u26a0\ufe0f  No working days found in the specified date range.'));
+      return;
+    }
+
+    // Check for overlapping sick days in the range
+    const workingDayjs = workingDays.map((date) => dayjs(date));
+    if (await this.checkAndReportLeaveOverlap(workingDayjs, 'vacation range', 'sick')) {
+      return;
+    }
+
+    // Check for overlapping vacation days in the range (self-overlap detection)
+    const existingVacationEntries = await this.dataManager.loadVacationEntries();
+    const overlappingVacationDates = this.findOverlappingDates(
+      workingDayjs,
+      existingVacationEntries
+    );
+
+    if (overlappingVacationDates.length > 0) {
+      const dateStrings = overlappingVacationDates
+        .map((date) => date.format(FORMAT_DATE_DAY))
+        .join(', ');
+      console.log(
+        chalk.red(
+          `\u274c Cannot add vacation range: vacation days already exist for ${dateStrings}. Please choose different dates or remove existing entries first.`
+        )
+      );
+      return;
+    }
+
+    // Check for existing time entries in the range
+    if (await this.checkAndReportTimeEntryOverlap(workingDayjs, 'vacation range')) {
       return;
     }
 

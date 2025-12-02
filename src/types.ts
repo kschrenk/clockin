@@ -31,6 +31,14 @@ export interface VacationEntry {
   description?: string;
 }
 
+export interface SickEntry {
+  id: string;
+  startDate: string; // ISO date string
+  endDate: string; // ISO date string
+  days: number; // number of sick days
+  description?: string;
+}
+
 export interface WorkSession {
   startTime: string; // ISO datetime string
   pausedTime: number; // total paused time in milliseconds
@@ -41,6 +49,7 @@ export interface WorkSession {
 export interface SummaryData {
   totalHoursWorked: number;
   totalVacationDays: number;
+  totalSickDays: number;
   remainingVacationDays: number;
   expectedHoursPerWeek: number;
   currentWeekHours: number;

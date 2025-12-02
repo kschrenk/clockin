@@ -6,6 +6,7 @@ import { createObjectCsvWriter } from 'csv-writer';
 import { Config, SummaryData, TimeEntry } from './types.js';
 import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
+import { SickManager } from './sick-manager.js';
 import {
   calculateWorkingTime,
   dayjs,
@@ -50,11 +51,13 @@ export class SummaryManager {
   private config: Config;
   private dataManager: DataManager;
   private vacationManager: VacationManager;
+  private sickManager: SickManager;
 
   constructor(config: Config) {
     this.config = config;
     this.dataManager = new DataManager(config);
     this.vacationManager = new VacationManager(config);
+    this.sickManager = new SickManager(config);
   }
 
   async showSummary(): Promise<void> {
@@ -72,7 +75,8 @@ export class SummaryManager {
       ['Current Week Hours', dayjs.duration(summaryData.currentWeekHours).asHours().toFixed(1)],
       ['Overtime Hours', this.formatHours(summaryData.overtimeHours)], // in 0.0h
       ['Vacation Days Used', `${summaryData.totalVacationDays}`],
-      ['Vacation Days Remaining', `${summaryData.remainingVacationDays}`]
+      ['Vacation Days Remaining', `${summaryData.remainingVacationDays}`],
+      ['Sick Days Used', `${summaryData.totalSickDays}`]
     );
 
     console.log(table.toString());
@@ -87,9 +91,9 @@ export class SummaryManager {
     const weekStart = getWeekStart(now);
     const weekEnd = getWeekEnd(now);
 
-    const weeklyTimeEntries = await this.getWeeklyTimeEntries(weekStart, weekEnd, now);
-    const weeklyVacationDates = await this.getWeeklyVacationEntries(weekStart, weekEnd, now);
-
+    const weeklyTimeEntries = await this.getWeeklyTimeEntries(weekStart, weekEnd);
+    const weeklyVacationDates = await this.getWeeklyVacationEntries(weekStart, weekEnd);
+    const weeklySickDates = await this.getWeeklySickEntries(weekStart, weekEnd);
     const rows: WeeklySummaryRow[] = [];
 
     // Only iterate over configured working days within the calendar week
@@ -106,9 +110,35 @@ export class SummaryManager {
 
         const dayTimeEntries = weeklyTimeEntries.filter((e) => dayjs(e.date).isSame(cursor, 'day'));
         const isVacationDay = weeklyVacationDates.some((d) => d.isSame(cursor, 'day'));
+        const isSickDay = weeklySickDates.some((d) => d.isSame(cursor, 'day'));
 
-        // Vacation row (if vacation covers this day)
-        if (isVacationDay) {
+        // Handle leave days (vacation/sick)
+        // Note: Overlap prevention exists in SickManager.addSickDays() and VacationManager.addVacation()
+        // methods using BaseLeaveManager.checkAndReportLeaveOverlap() to prevent users from adding
+        // conflicting leave types for the same dates. This precedence logic serves as a safety fallback
+        // for edge cases or data imported from external systems.
+        //
+        // Design decision: Sick days take precedence over vacation days because:
+        // 1. Sick leave is typically unplanned and takes priority over scheduled vacation
+        // 2. Legal/compliance requirements often treat sick leave differently than vacation
+        // 3. In payroll systems, sick days may have different accrual rules than vacation days
+        if (isSickDay) {
+          const workingHoursPerDay = this.calculateWorkingHoursPerDay();
+          const sickHoursMs = dayjs.duration(workingHoursPerDay, 'hours').asMilliseconds();
+          rows.push({
+            date: dateKey,
+            displayDate,
+            start: null,
+            end: null,
+            breakMinutes: null,
+            hoursMs: sickHoursMs,
+            hoursFormatted: dayjs.duration(sickHoursMs).format('HH:mm'),
+            entryType: 'sick',
+            isVacation: false,
+          });
+        }
+        // Vacation row (only if not already marked as sick day)
+        else if (isVacationDay) {
           const workingHoursPerDay = this.calculateWorkingHoursPerDay();
           const vacHoursMs = dayjs.duration(workingHoursPerDay, 'hours').asMilliseconds();
           rows.push({
@@ -277,6 +307,28 @@ export class SummaryManager {
     return vacationDates;
   };
 
+  private getWeeklySickEntries = async (weekStart: Dayjs, weekEnd: Dayjs): Promise<Dayjs[]> => {
+    const sickEntries = await this.dataManager.loadSickEntries();
+    const sickDates: Dayjs[] = [];
+
+    sickEntries.forEach((entry) => {
+      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) {
+        return;
+      }
+
+      const entryStartDate = dayjs(entry.startDate);
+      const entryEndDate = dayjs(entry.endDate);
+
+      let cursor = entryStartDate;
+      while (isDateInWeekRange(weekStart, weekEnd, cursor) && cursor.isSameOrBefore(entryEndDate)) {
+        sickDates.push(cursor);
+        cursor = cursor.add(1, 'day');
+      }
+    });
+
+    return sickDates;
+  };
+
   async openCsvFile(): Promise<void> {
     const csvPath = this.dataManager.getTimeEntriesPath();
     await this.dataManager.ensureDataDirectory();
@@ -337,6 +389,7 @@ export class SummaryManager {
     }
 
     const totalVacationDays = await this.vacationManager.getTotalVacationDays();
+    const totalSickDays = await this.sickManager.getTotalSickDays();
     const remainingVacationDays = await this.vacationManager.getRemainingVacationDays();
 
     const totalHoursInHours = totalHoursWorked / 3_600_000;
@@ -347,6 +400,7 @@ export class SummaryManager {
     return {
       totalHoursWorked,
       totalVacationDays,
+      totalSickDays,
       remainingVacationDays,
       expectedHoursPerWeek: this.config.hoursPerWeek,
       currentWeekHours,

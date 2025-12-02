@@ -111,4 +111,106 @@ describe('VacationManager', () => {
     await badManager.addVacation(2, '2025-01-06');
     expect((await new DataManager(badConfig).loadVacationEntries()).length).toBe(0);
   });
+
+  it('prevents adding vacation days on dates that already have vacation entries (self-overlap)', async () => {
+    // Add first vacation entry
+    await vacationManager.addVacation(1, '2025-01-06');
+
+    // Try to add another vacation on the same date - should be prevented
+    await vacationManager.addVacation(1, '2025-01-06');
+
+    // Should only have the first entry
+    const vacationEntries = await dataManager.loadVacationEntries();
+    expect(vacationEntries.length).toBe(1);
+    expect(await vacationManager.getTotalVacationDays()).toBe(1);
+  });
+
+  it('prevents adding vacation range when some dates already have vacation entries', async () => {
+    // Add vacation on Wednesday
+    await vacationManager.addVacation(1, '2025-01-08'); // Wednesday
+
+    // Try to add range that overlaps - should be prevented
+    await vacationManager.addVacationRange('2025-01-06', '2025-01-10'); // Mon-Fri range
+
+    // Should only have the original entry
+    const vacationEntries = await dataManager.loadVacationEntries();
+    expect(vacationEntries.length).toBe(1);
+    expect(await vacationManager.getTotalVacationDays()).toBe(1);
+  });
+
+  it('prevents adding vacation when sick days already exist for same dates', async () => {
+    const { SickManager } = await import('../sick-manager.js');
+    const sickManager = new SickManager(config);
+
+    // Add sick day first
+    await sickManager.addSickDays(1, 'Flu', '2025-01-06');
+
+    // Try to add vacation on the same date - should be prevented
+    await vacationManager.addVacation(1, '2025-01-06');
+
+    // Only sick entry should exist, no vacation entry
+    const sickTotal = await sickManager.getTotalSickDays();
+    const vacationEntries = await dataManager.loadVacationEntries();
+
+    expect(sickTotal).toBe(1); // Sick day should still exist
+    expect(vacationEntries.length).toBe(0); // Vacation should be rejected
+  });
+
+  it('prevents adding vacation range when sick days overlap', async () => {
+    const { SickManager } = await import('../sick-manager.js');
+    const sickManager = new SickManager(config);
+
+    // Add sick days first
+    await sickManager.addSickDays(2, 'Illness', '2025-01-07'); // Tue-Wed
+
+    // Try to add vacation range that overlaps - should be prevented
+    await vacationManager.addVacationRange('2025-01-06', '2025-01-10'); // Mon-Fri, overlaps with sick days
+
+    // Only sick days should exist
+    const sickTotal = await sickManager.getTotalSickDays();
+    const vacationEntries = await dataManager.loadVacationEntries();
+
+    expect(sickTotal).toBe(2); // Sick days should still exist
+    expect(vacationEntries.length).toBe(0); // Vacation range should be rejected
+  });
+
+  it('prevents adding vacation when time entries exist for those dates', async () => {
+    // Simulate a time entry for Jan 6th
+    await dataManager.saveTimeEntry({
+      id: 'test-entry',
+      date: '2025-01-06',
+      startTime: '2025-01-06T09:00:00.000Z',
+      endTime: '2025-01-06T17:00:00.000Z',
+      pauseTime: 60,
+      type: 'work',
+      description: 'Test work',
+    });
+
+    // Try to add vacation on the same date - should be prevented
+    await vacationManager.addVacation(1, '2025-01-06');
+
+    // Should not create vacation entry
+    const vacationEntries = await dataManager.loadVacationEntries();
+    expect(vacationEntries.length).toBe(0);
+  });
+
+  it('prevents adding vacation range when time entries exist in the range', async () => {
+    // Simulate time entries for Jan 7th and 8th
+    await dataManager.saveTimeEntry({
+      id: 'test-entry-1',
+      date: '2025-01-07',
+      startTime: '2025-01-07T09:00:00.000Z',
+      endTime: '2025-01-07T17:00:00.000Z',
+      pauseTime: 60,
+      type: 'work',
+      description: 'Test work',
+    });
+
+    // Try to add vacation range that includes those dates - should be prevented
+    await vacationManager.addVacationRange('2025-01-06', '2025-01-10');
+
+    // Should not create vacation entry
+    const vacationEntries = await dataManager.loadVacationEntries();
+    expect(vacationEntries.length).toBe(0);
+  });
 });

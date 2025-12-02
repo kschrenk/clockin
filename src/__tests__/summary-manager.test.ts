@@ -139,4 +139,65 @@ describe('SummaryManager (JSON weekly summary)', () => {
     expect(result.overtime).toBe(false);
     expect(result.undertime).toBe(true);
   });
+
+  it('includes sick days in summary calculation', async () => {
+    // Mock empty vacation entries and empty sick entries initially
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+
+    // Add a sick entry via mock
+    const sickEntry = {
+      id: 's1',
+      startDate: '2025-11-12',
+      endDate: '2025-11-12',
+      days: 1,
+      description: 'Flu',
+    };
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([sickEntry]);
+
+    // Get summary data to check sick days are included
+    const summaryData = await (summaryManager as any).calculateSummaryData();
+    expect(summaryData.totalSickDays).toBe(1);
+  });
+
+  it('handles overlapping sick and vacation days correctly (sick takes precedence)', async () => {
+    const vacationEntry = {
+      id: 'v1',
+      startDate: '2025-11-12',
+      endDate: '2025-11-12',
+      days: 1,
+      description: 'Vacation',
+    };
+
+    const sickEntry = {
+      id: 's1',
+      startDate: '2025-11-12', // Same date as vacation
+      endDate: '2025-11-12',
+      days: 1,
+      description: 'Flu',
+    };
+
+    // Mock to return both vacation and sick entries for the same date
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([vacationEntry]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([sickEntry]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+    })) as WeeklySummaryResult;
+
+    // Should have only one row for the overlapping date, and it should be sick (not vacation)
+    const nov12Rows = result.rows.filter((r) => r.date === '2025-11-12');
+    expect(nov12Rows.length).toBe(1);
+    expect(nov12Rows[0].entryType).toBe('sick');
+    expect(nov12Rows[0].isVacation).toBe(false);
+
+    // Verify summary includes both types but no double-counting in weekly hours
+    const summaryData = await (summaryManager as any).calculateSummaryData();
+    expect(summaryData.totalSickDays).toBe(1);
+    expect(summaryData.totalVacationDays).toBe(1);
+
+    // Weekly hours should only count the sick day (8h), not both (16h)
+    expect(result.totalWeeklyHoursMs).toBe(8 * 3_600_000); // 8 hours in milliseconds
+  });
 });

@@ -10,6 +10,7 @@ import { ConfigManager } from '../config-manager.js';
 import { SetupWizard } from '../setup-wizard.js';
 import { TimeTracker } from '../time-tracker.js';
 import { VacationManager } from '../vacation-manager.js';
+import { SickManager } from '../sick-manager.js';
 import { SummaryManager } from '../summary-manager.js';
 
 const program = new Command();
@@ -117,6 +118,13 @@ const vacationCommand = program.command('vacation').description('Manage vacation
 vacationCommand
   .command('add <days> [start_date]')
   .description('Add vacation days (start_date optional, defaults to today)')
+  .addHelpText(
+    'after',
+    `
+Examples:
+  clockin vacation add 5                      # Add 5 vacation days starting today
+  clockin vacation add 3 2025-01-15          # Add 3 vacation days starting Jan 15th`
+  )
   .action(async (days: string, startDate?: string) => {
     try {
       const config = await ensureSetup();
@@ -144,6 +152,37 @@ vacationCommand
       await vacationManager.addVacationRange(startDate, endDate);
     } catch (error) {
       console.log(chalk.red('❌ Error adding vacation range:'), error);
+    }
+  });
+
+const sickCommand = program.command('sick').description('Manage sick days');
+
+sickCommand
+  .command('add <days> [description] [start_date]')
+  .description('Add sick days (description and start_date optional, start_date defaults to today)')
+  .addHelpText(
+    'after',
+    `
+Examples:
+  clockin sick add 1                          # Add 1 sick day starting today
+  clockin sick add 2 "Flu"                    # Add 2 sick days with description
+  clockin sick add 3 "Food poisoning" 2025-01-15  # Add 3 sick days starting Jan 15th
+  clockin sick add 1 "" 2025-12-10            # Add 1 sick day on specific date (no description)`
+  )
+  .action(async (days: string, description?: string, startDate?: string) => {
+    try {
+      const config = await ensureSetup();
+      const sickManager = new SickManager(config);
+      const numDays = parseFloat(days);
+
+      if (isNaN(numDays) || numDays <= 0) {
+        console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
+        return;
+      }
+
+      await sickManager.addSickDays(numDays, description, startDate);
+    } catch (error) {
+      console.log(chalk.red('❌ Error adding sick days:'), error);
     }
   });
 
@@ -398,29 +437,6 @@ program
       console.log(chalk.red('❌ Error displaying debug information:'), error);
     }
   });
-
-// manage sick days command
-// const sickCommand = program.command('sick').description('Manage sick days');
-//
-// sickCommand
-//   .command('add <days> [start_date]')
-//   .description('Add sick days (start_date optional, defaults to today)')
-//   .action(async (days: string, startDate?: string) => {
-//     try {
-//       const config = await ensureSetup();
-//       const vacationManager = new VacationManager(config);
-//       const numDays = parseFloat(days);
-//
-//       if (isNaN(numDays) || numDays <= 0) {
-//         console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
-//         return;
-//       }
-//
-//       await vacationManager.addSickDays(numDays, startDate);
-//     } catch (error) {
-//       console.log(chalk.red('❌ Error adding sick days:'), error);
-//     }
-//   });
 
 // Handle unknown commands
 program.on('command:*', () => {
