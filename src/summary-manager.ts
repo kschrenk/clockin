@@ -46,21 +46,6 @@ export interface WeeklySummaryResult {
   undertime: boolean;
 }
 
-function isTimeEntry(obj: unknown): obj is TimeEntry {
-  return (
-    typeof obj === 'object' &&
-    obj !== null &&
-    'date' in obj &&
-    'startTime' in obj &&
-    'endTime' in obj &&
-    'type' in obj
-  );
-}
-
-function isDayjs(obj: unknown): obj is Dayjs {
-  return dayjs.isDayjs(obj);
-}
-
 export class SummaryManager {
   private config: Config;
   private dataManager: DataManager;
