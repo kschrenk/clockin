@@ -27,7 +27,7 @@
     "working-hours",
     "productivity"
   ],
-  "author": "",
+  "author": "kschrenk",
   "license": "ISC",
   "packageManager": "pnpm@10.18.3",
   "volta": {
