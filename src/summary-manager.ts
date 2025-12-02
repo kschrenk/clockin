@@ -15,6 +15,7 @@ import {
   isDateInWeekRange,
   FORMAT_DATE,
   FORMAT_DATE_DAY,
+  FORMAT_DATE_DAY_YEAR,
 } from './date-utils.js';
 import { Dayjs } from 'dayjs';
 
@@ -199,7 +200,7 @@ export class SummaryManager {
 
     console.log(
       chalk.blue.bold(
-        `\n\ud83d\udcc5 Weekly Summary (${weekStart.format(FORMAT_DATE_DAY)} - ${weekEnd.format('MMM Do, YYYY')})\n`
+        `\n\ud83d\udcc5 Weekly Summary (${weekStart.format(FORMAT_DATE_DAY)} - ${weekEnd.format(FORMAT_DATE_DAY_YEAR)})\n`
       )
     );
 

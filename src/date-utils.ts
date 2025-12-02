@@ -17,8 +17,8 @@ dayjs.extend(isSameOrBefore);
 
 export const FORMAT_DATE = 'YYYY-MM-DD';
 export const FORMAT_TIME = 'HH:mm:ss';
-export const FORMAT_HH_MM = 'HH:mm';
 export const FORMAT_DATE_DAY = 'MMM Do';
+export const FORMAT_DATE_DAY_YEAR = 'MMM Do, YYYY';
 
 export function formatInTz(date: Date | string | number, tz: string, pattern: string): string {
   return dayjs(date).tz(tz).format(pattern);

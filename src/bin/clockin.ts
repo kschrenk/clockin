@@ -399,6 +399,29 @@ program
     }
   });
 
+// manage sick days command
+// const sickCommand = program.command('sick').description('Manage sick days');
+//
+// sickCommand
+//   .command('add <days> [start_date]')
+//   .description('Add sick days (start_date optional, defaults to today)')
+//   .action(async (days: string, startDate?: string) => {
+//     try {
+//       const config = await ensureSetup();
+//       const vacationManager = new VacationManager(config);
+//       const numDays = parseFloat(days);
+//
+//       if (isNaN(numDays) || numDays <= 0) {
+//         console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
+//         return;
+//       }
+//
+//       await vacationManager.addSickDays(numDays, startDate);
+//     } catch (error) {
+//       console.log(chalk.red('❌ Error adding sick days:'), error);
+//     }
+//   });
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.log(chalk.red('❌ Unknown command. Use "clockin --help" to see available commands.'));
