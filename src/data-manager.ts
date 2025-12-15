@@ -52,6 +52,7 @@ export class DataManager {
                   ? parseInt(data.pauseTime || data['Pause Time (minutes)'] || '0', 10)
                   : undefined,
               type: (data.type || data.Type) as TimeEntry['type'],
+              description: data.description || data.Description || undefined,
             };
             entries.push(entry);
           } catch (e) {

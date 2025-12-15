@@ -46,6 +46,23 @@ export function isValidDateString(dateString?: string): boolean {
   return d.isValid();
 }
 
+/**
+ * Validates time format (HH:MM or H:MM, 24-hour format)
+ */
+export function isValidTimeString(timeString?: string): boolean {
+  if (!timeString) return false;
+  const timeRegex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
+  return timeRegex.test(timeString);
+}
+
+/**
+ * Combines date and time strings into an ISO datetime string
+ */
+export function combineDateAndTime(dateString: string, timeString: string, tz: string): string {
+  const date = dayjs(dateString).format('YYYY-MM-DD');
+  return dayjs.tz(`${date} ${timeString}`, tz).toISOString();
+}
+
 export function calculateWorkingTime(
   startTime: string,
   endTime?: string,

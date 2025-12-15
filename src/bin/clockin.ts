@@ -255,6 +255,44 @@ program
   });
 
 program
+  .command('add <date> <start_time> <end_time> [description]')
+  .description('Add a time entry manually (YYYY-MM-DD HH:MM HH:MM format)')
+  .option('-p, --pause <minutes>', 'Pause time in minutes', '0')
+  .addHelpText(
+    'after',
+    `
+Examples:
+  clockin add 2025-01-14 09:00 17:30                    # Add 8.5 hour work day
+  clockin add 2025-01-14 09:00 17:30 "Project work"     # Add with description
+  clockin add 2025-01-14 09:00 17:30 -p 30              # Add with 30 minutes pause
+  clockin add 2025-01-14 09:00 17:30 "Meeting day" -p 45 # Add with description and pause`
+  )
+  .action(
+    async (
+      date: string,
+      startTime: string,
+      endTime: string,
+      description?: string,
+      options?: { pause?: string }
+    ) => {
+      try {
+        const config = await ensureSetup();
+        const timeTracker = new TimeTracker(config);
+        const pauseMinutes = options?.pause ? parseInt(options.pause, 10) : 0;
+
+        if (isNaN(pauseMinutes)) {
+          console.log(chalk.red('❌ Invalid pause time. Please enter a valid number of minutes.'));
+          return;
+        }
+
+        await timeTracker.addTimeEntry(date, startTime, endTime, description, pauseMinutes);
+      } catch (error) {
+        console.log(chalk.red('❌ Error adding time entry:'), error);
+      }
+    }
+  );
+
+program
   .command('whoami')
   .description('Show current user settings and configuration')
   .action(async () => {

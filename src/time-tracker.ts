@@ -6,6 +6,8 @@ import {
   formatInTz,
   calculateWorkingTime,
   isValidDateString,
+  isValidTimeString,
+  combineDateAndTime,
   FORMAT_TIME,
   getPauseDurationMs,
   calculateElapsedMs,
@@ -239,6 +241,163 @@ export class TimeTracker {
       console.log(chalk.yellow('\n\u23f0 Timer view exited. Session is still active.'));
       process.exit(0);
     });
+  }
+
+  /**
+   * Add a time entry manually with validation
+   */
+  async addTimeEntry(
+    dateString: string,
+    startTimeString: string,
+    endTimeString: string,
+    description?: string,
+    pauseTimeMinutes: number = 0
+  ): Promise<void> {
+    // Validate date format
+    if (!isValidDateString(dateString)) {
+      console.log(chalk.red('❌ Invalid date format. Please use YYYY-MM-DD format.'));
+      return;
+    }
+
+    // Validate time formats
+    if (!isValidTimeString(startTimeString)) {
+      console.log(chalk.red('❌ Invalid start time format. Please use HH:MM format (24-hour).'));
+      return;
+    }
+
+    if (!isValidTimeString(endTimeString)) {
+      console.log(chalk.red('❌ Invalid end time format. Please use HH:MM format (24-hour).'));
+      return;
+    }
+
+    // Validate pause time
+    if (pauseTimeMinutes < 0) {
+      console.log(chalk.red('❌ Pause time cannot be negative.'));
+      return;
+    }
+
+    const targetDate = dayjs(dateString);
+    const now = dayjs();
+
+    // Don't allow future dates
+    if (targetDate.isAfter(now, 'day')) {
+      console.log(chalk.red('❌ Cannot add time entries for future dates.'));
+      return;
+    }
+
+    // Create full datetime strings
+    const startTimeISO = combineDateAndTime(dateString, startTimeString, this.config.timezone);
+    const endTimeISO = combineDateAndTime(dateString, endTimeString, this.config.timezone);
+
+    // Validate that end time is after start time
+    const startDateTime = dayjs(startTimeISO);
+    const endDateTime = dayjs(endTimeISO);
+
+    if (!endDateTime.isAfter(startDateTime)) {
+      console.log(chalk.red('❌ End time must be after start time.'));
+      return;
+    }
+
+    // Calculate total duration and validate it's reasonable
+    const totalDurationMs = calculateWorkingTime(startTimeISO, endTimeISO, pauseTimeMinutes);
+    const totalHours = dayjs.duration(totalDurationMs).asHours();
+
+    if (totalHours >= 24) {
+      console.log(chalk.red('❌ Work session cannot exceed 24 hours.'));
+      return;
+    }
+
+    if (totalHours <= 0) {
+      console.log(chalk.red('❌ Work session must be longer than the pause time.'));
+      return;
+    }
+
+    // Check for conflicts with existing time entries
+    const existingTimeEntries = await this.dataManager.loadTimeEntries();
+    const hasTimeEntryConflict = existingTimeEntries.some((entry) =>
+      dayjs(entry.date).isSame(targetDate, 'day')
+    );
+
+    if (hasTimeEntryConflict) {
+      console.log(
+        chalk.red(
+          `❌ A time entry already exists for ${targetDate.format('MMM Do, YYYY')}. Please remove it first or choose a different date.`
+        )
+      );
+      return;
+    }
+
+    // Check for conflicts with vacation entries
+    const vacationEntries = await this.dataManager.loadVacationEntries();
+    const hasVacationConflict = vacationEntries.some((entry) => {
+      const entryStart = dayjs(entry.startDate);
+      const entryEnd = dayjs(entry.endDate);
+      return (
+        targetDate.isSame(entryStart, 'day') ||
+        targetDate.isSame(entryEnd, 'day') ||
+        (targetDate.isAfter(entryStart, 'day') && targetDate.isBefore(entryEnd, 'day'))
+      );
+    });
+
+    if (hasVacationConflict) {
+      console.log(
+        chalk.red(
+          `❌ Cannot add time entry: vacation day scheduled for ${targetDate.format('MMM Do, YYYY')}. Please remove the vacation entry first.`
+        )
+      );
+      return;
+    }
+
+    // Check for conflicts with sick entries
+    const sickEntries = await this.dataManager.loadSickEntries();
+    const hasSickConflict = sickEntries.some((entry) => {
+      const entryStart = dayjs(entry.startDate);
+      const entryEnd = dayjs(entry.endDate);
+      return (
+        targetDate.isSame(entryStart, 'day') ||
+        targetDate.isSame(entryEnd, 'day') ||
+        (targetDate.isAfter(entryStart, 'day') && targetDate.isBefore(entryEnd, 'day'))
+      );
+    });
+
+    if (hasSickConflict) {
+      console.log(
+        chalk.red(
+          `❌ Cannot add time entry: sick day scheduled for ${targetDate.format('MMM Do, YYYY')}. Please remove the sick day entry first.`
+        )
+      );
+      return;
+    }
+
+    // Create the time entry
+    const timeEntry: TimeEntry = {
+      id: this.generateId(),
+      date: targetDate.format('YYYY-MM-DD'),
+      startTime: startTimeISO,
+      endTime: endTimeISO,
+      pauseTime: pauseTimeMinutes,
+      type: 'work',
+      description,
+    };
+
+    // Save the entry
+    await this.dataManager.saveTimeEntry(timeEntry);
+
+    console.log(chalk.green(`✅ Time entry added successfully!`));
+    console.log(
+      chalk.cyan(
+        `📅 Date: ${targetDate.format('MMM Do, YYYY')} | ⏰ ${startTimeString} - ${endTimeString}`
+      )
+    );
+    console.log(
+      chalk.cyan(`🕐 Working time: ${dayjs.duration(totalDurationMs).format(FORMAT_TIME)}`)
+    );
+    if (pauseTimeMinutes > 0) {
+      console.log(chalk.cyan(`⏸️  Pause time: ${pauseTimeMinutes} minutes`));
+    }
+    if (description) {
+      console.log(chalk.cyan(`📝 Description: ${description}`));
+    }
   }
 
   private async getCurrentSession(): Promise<WorkSession | null> {
