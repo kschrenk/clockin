@@ -3,19 +3,21 @@ import path from 'path';
 import csv from 'csv-parser';
 import { createObjectCsvWriter } from 'csv-writer';
 import { createReadStream } from 'fs';
-import { TimeEntry, VacationEntry, SickEntry, Config } from './types.js';
+import { TimeEntry, VacationEntry, SickEntry, HolidayEntry, Config } from './types.js';
 
 export class DataManager {
   private config: Config;
   private readonly timeEntriesPath: string;
   private readonly vacationEntriesPath: string;
   private readonly sickEntriesPath: string;
+  private readonly holidayEntriesPath: string;
 
   constructor(config: Config) {
     this.config = config;
     this.timeEntriesPath = path.join(config.dataDirectory, 'time-entries.csv');
     this.vacationEntriesPath = path.join(config.dataDirectory, 'vacation-entries.csv');
     this.sickEntriesPath = path.join(config.dataDirectory, 'sick-entries.csv');
+    this.holidayEntriesPath = path.join(config.dataDirectory, 'holiday-entries.csv');
   }
 
   async ensureDataDirectory(): Promise<void> {
@@ -187,6 +189,85 @@ export class DataManager {
     });
 
     await csvWriter.writeRecords([entry]);
+  }
+
+  async loadHolidayEntries(): Promise<HolidayEntry[]> {
+    await this.ensureDataDirectory();
+
+    try {
+      await fs.access(this.holidayEntriesPath);
+    } catch {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const entries: HolidayEntry[] = [];
+      createReadStream(this.holidayEntriesPath)
+        .pipe(csv())
+        .on('data', (data) => {
+          try {
+            const entry: HolidayEntry = {
+              id: data.id || data.ID,
+              date: data.date || data.Date,
+              name: data.name || data.Name,
+              country: data.country || data.Country,
+              region: data.region || data.Region,
+            };
+            entries.push(entry);
+          } catch (e) {
+            reject(e);
+          }
+        })
+        .on('end', () => resolve(entries))
+        .on('error', reject);
+    });
+  }
+
+  async saveHolidayEntry(entry: HolidayEntry): Promise<void> {
+    await this.ensureDataDirectory();
+
+    const fileExists = await this.fileExists(this.holidayEntriesPath);
+    const csvWriter = createObjectCsvWriter({
+      path: this.holidayEntriesPath,
+      header: [
+        { id: 'id', title: 'ID' },
+        { id: 'date', title: 'Date' },
+        { id: 'name', title: 'Name' },
+        { id: 'country', title: 'Country' },
+        { id: 'region', title: 'Region' },
+      ],
+      append: fileExists,
+    });
+
+    await csvWriter.writeRecords([entry]);
+  }
+
+  async rewriteHolidayEntries(entries: HolidayEntry[]): Promise<void> {
+    await this.ensureDataDirectory();
+
+    // Delete existing file
+    try {
+      await fs.unlink(this.holidayEntriesPath);
+    } catch (error) {
+      // File doesn't exist, that's fine
+    }
+
+    // Write all entries at once (not appending)
+    if (entries.length > 0) {
+      const csvWriter = createObjectCsvWriter({
+        path: this.holidayEntriesPath,
+        header: [
+          { id: 'id', title: 'ID' },
+          { id: 'date', title: 'Date' },
+          { id: 'name', title: 'Name' },
+          { id: 'country', title: 'Country' },
+          { id: 'region', title: 'Region' },
+        ],
+        append: false,
+      });
+
+      await csvWriter.writeRecords(entries);
+    }
   }
 
   private async fileExists(filePath: string): Promise<boolean> {

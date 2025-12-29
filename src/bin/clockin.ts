@@ -12,6 +12,7 @@ import { TimeTracker } from '../time-tracker.js';
 import { VacationManager } from '../vacation-manager.js';
 import { SickManager } from '../sick-manager.js';
 import { SummaryManager } from '../summary-manager.js';
+import { HolidayManager } from '../holiday-manager.js';
 
 const program = new Command();
 
@@ -330,8 +331,58 @@ program
   });
 
 program
+  .command('holidays')
+  .description('Initialize public holidays for a given year and region')
+  .option('-y, --year <year>', 'Year to initialize holidays for (defaults to current year)')
+  .option('-c, --country <country>', 'Country code (e.g., DE, US)', 'DE')
+  .option(
+    '-r, --region <region>',
+    'Region/state code (e.g., BY for Bavaria, CA for California)',
+    'BY'
+  )
+  .option('-f, --force', 'Force re-initialization even if holidays already exist')
+  .addHelpText(
+    'after',
+    `
+Examples:
+  clockin holidays                           # Initialize holidays for current year (Germany/Bavaria)
+  clockin holidays -y 2025                   # Initialize holidays for 2025 (Germany/Bavaria)
+  clockin holidays -c US -r CA               # Initialize holidays for current year (US/California)
+  clockin holidays -y 2026 -c US -r CA       # Initialize holidays for 2026 (US/California)
+  clockin holidays -y 2025 --force           # Re-initialize 2025 holidays (replaces existing)
+
+Supported Countries and Regions:
+  DE (Germany):
+    - BY: Bavaria
+  US (United States):
+    - CA: California`
+  )
+  .action(
+    async (options: { year?: string; country?: string; region?: string; force?: boolean }) => {
+      try {
+        const config = await ensureSetup();
+        const holidayManager = new HolidayManager(config);
+
+        const year = options.year ? parseInt(options.year, 10) : undefined;
+        const country = options.country || 'DE';
+        const region = options.region || 'BY';
+        const force = options.force || false;
+
+        if (year && (isNaN(year) || year < 2000 || year > 2100)) {
+          console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
+          return;
+        }
+
+        await holidayManager.initHolidays(year, country, region, force);
+      } catch (error) {
+        console.log(chalk.red('❌ Error initializing holidays:'), error);
+      }
+    }
+  );
+
+program
   .command('debug')
-  .description('Show debug information including environment variables and system info')
+  .description('Show debug information about the current environment and configuration')
   .action(async () => {
     try {
       console.log(chalk.blue.bold('\n🐛 Debug Information\n'));
