@@ -6,6 +6,7 @@ export interface Config {
   dataDirectory: string;
   timezone: string;
   setupCompleted: boolean;
+  startDate?: string; // ISO date string - first day of work for accurate overtime calculations
 }
 
 export interface WorkingDay {
@@ -39,6 +40,14 @@ export interface SickEntry {
   description?: string;
 }
 
+export interface HolidayEntry {
+  id: string;
+  date: string; // ISO date string
+  name: string; // Holiday name
+  country: string; // Country code (e.g., 'DE', 'US')
+  region: string; // Region/state code (e.g., 'BY' for Bavaria, 'CA' for California)
+}
+
 export interface WorkSession {
   startTime: string; // ISO datetime string
   pausedTime: number; // total paused time in milliseconds
@@ -54,4 +63,6 @@ export interface SummaryData {
   expectedHoursPerWeek: number;
   currentWeekHours: number;
   overtimeHours: number; // in milliseconds
+  startDate: string; // Employment start date (YYYY-MM-DD)
+  endDate: string; // Calculation end date (YYYY-MM-DD)
 }

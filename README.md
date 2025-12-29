@@ -12,8 +12,10 @@ A colorful, user-friendly CLI to track working hours and vacation days locally u
 - Open raw time CSV in your default viewer
 - Add vacation by number of days or by date range (skips non-working days)
 - Track sick days with optional descriptions
+- **Track public holidays** - Initialize holidays for your region (Germany/Bavaria, US/California)
 - Track remaining vacation vs yearly allowance
 - Comprehensive leave management with separate vacation and sick day tracking
+- **Accurate overtime calculation** - Based on start date, includes vacation/sick/holidays
 
 ## Installation
 
@@ -174,6 +176,26 @@ clockin sick add 1 "" 2025-12-10            # Add 1 sick day on specific date (n
 
 Sick days are tracked separately from vacation days and appear in both overall and weekly summaries. Unlike vacation days, **sick days use consecutive calendar days** (including weekends) since illness doesn't follow working day schedules. For example, if you're sick for 3 days starting Monday, it covers Monday, Tuesday, and Wednesday - regardless of whether any of those days are configured as working days.
 
+### Holiday Management
+
+Initialize public holidays for your region to get accurate overtime calculations:
+
+```zsh
+clockin holidays                           # Initialize for current year (Germany/Bavaria default)
+clockin holidays -y 2025                   # Initialize for specific year
+clockin holidays -c US -r CA               # Initialize for US/California
+clockin holidays -y 2026 -c US -r CA       # Initialize for 2026, US/California
+clockin holidays -y 2025 --force           # Re-initialize 2025 (replaces existing)
+```
+
+**Duplicate Prevention:** If you try to initialize holidays for a year that already exists, the command will warn you and skip initialization. Use the `--force` flag to replace existing holidays.
+
+**Supported regions:**
+- **Germany (DE):** Bavaria (BY) - 13 holidays including Epiphany, Easter-based holidays, Corpus Christi, Assumption of Mary, All Saints' Day
+- **United States (US):** California (CA) - 9 federal holidays including MLK Day, Presidents' Day, Memorial Day, Labor Day, Thanksgiving
+
+Holidays are automatically counted toward your expected working hours and appear in weekly summaries. See `HOLIDAY_GUIDE.md` for detailed information.
+
 ### Live Timer (Detached)
 
 If you exited the live view with Ctrl+C, **your session continues running in the background**. Ctrl+C only exits the timer display, it does NOT pause tracking. To pause tracking, use:
@@ -207,6 +229,7 @@ clockin timer
 | `time-entries.csv`     | Work sessions (start/end, pauses)   |
 | `vacation-entries.csv` | Vacation periods                    |
 | `sick-entries.csv`     | Sick leave periods with descriptions |
+| `holiday-entries.csv`  | Public holidays by region and year  |
 
 Files are stored in your chosen data directory. Safe to back up with any sync tool.
 

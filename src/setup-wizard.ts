@@ -3,6 +3,8 @@ import chalk from 'chalk';
 
 import { Config, WorkingDay } from './types.js';
 import { ConfigManager } from './config-manager.js';
+import { HolidayManager } from './holiday-manager.js';
+import { dayjs } from './date-utils.js';
 
 export class SetupWizard {
   private configManager: ConfigManager;
@@ -38,12 +40,70 @@ export class SetupWizard {
         config.setupCompleted = true;
         await this.configManager.saveConfig(config);
         console.log(chalk.green.bold('\n✅ Setup completed successfully!\n'));
+
+        await this.maybeInitializeHolidays(config);
       } else {
         console.log(chalk.yellow("\n🔄 Let's start over...\n"));
       }
     }
 
     return config!;
+  }
+
+  private async maybeInitializeHolidays(config: Config): Promise<void> {
+    const { initHolidays } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'initHolidays',
+        message: 'Initialize your holiday calendar now? (recommended)',
+        default: true,
+      },
+    ]);
+
+    if (!initHolidays) return;
+
+    const { country, region } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'country',
+        message: 'Holiday country code (e.g., DE, US):',
+        default: 'DE',
+        validate: (input: string) =>
+          /^[A-Za-z]{2}$/.test(input.trim()) || 'Please enter a valid 2-letter country code',
+        filter: (input: string) => input.trim().toUpperCase(),
+      },
+      {
+        type: 'input',
+        name: 'region',
+        message: 'Holiday region/state code (e.g., BY for Bavaria, CA for California):',
+        default: 'BY',
+        validate: (input: string) => input.trim().length > 0 || 'Region cannot be empty',
+        filter: (input: string) => input.trim().toUpperCase(),
+      },
+    ]);
+
+    const holidayManager = new HolidayManager(config);
+    const now = dayjs();
+    const yearsToInit = [now.year(), now.year() + 1];
+
+    try {
+      for (const year of yearsToInit) {
+        await holidayManager.initHolidays(year, country, region);
+      }
+      console.log(
+        chalk.green(
+          `✅ Holidays initialized for ${country}-${region} (${yearsToInit[0]} and ${yearsToInit[1]}).\n`
+        )
+      );
+    } catch (err) {
+      // Non-fatal: setup should succeed even if holiday initialization fails.
+      console.log(
+        chalk.yellow(
+          '⚠️  Setup completed, but holiday initialization failed. You can run `clockin holidays` later to try again.'
+        )
+      );
+      console.log(chalk.gray(String(err)));
+    }
   }
 
   private async collectUserInput(): Promise<Config> {
@@ -70,6 +130,20 @@ export class SetupWizard {
         validate: (input: number) =>
           (input >= 0 && input <= 365) || 'Please enter a valid number of days (0-365)',
       },
+      {
+        type: 'input',
+        name: 'startDate',
+        message: 'What is your first day of work? (YYYY-MM-DD, press Enter to use today)',
+        default: new Date().toISOString().split('T')[0],
+        validate: (input: string) => {
+          if (!input.trim()) return true;
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!dateRegex.test(input)) return 'Please enter a valid date in YYYY-MM-DD format';
+          const date = new Date(input);
+          if (isNaN(date.getTime())) return 'Please enter a valid date';
+          return true;
+        },
+      },
     ]);
 
     const timezone = await this.collectTimezone();
@@ -80,6 +154,7 @@ export class SetupWizard {
       name: answers.name,
       hoursPerWeek: answers.hoursPerWeek,
       vacationDaysPerYear: answers.vacationDaysPerYear,
+      startDate: answers.startDate,
       timezone,
       workingDays,
       setupCompleted: false,
@@ -183,6 +258,7 @@ export class SetupWizard {
     console.log(`${chalk.cyan('Name:')} ${config.name}`);
     console.log(`${chalk.cyan('Hours per week:')} ${config.hoursPerWeek}`);
     console.log(`${chalk.cyan('Vacation days per year:')} ${config.vacationDaysPerYear}`);
+    console.log(`${chalk.cyan('Start date:')} ${config.startDate || 'Not set'}`);
     console.log(`${chalk.cyan('Timezone:')} ${config.timezone}`);
 
     const workingDayNames = config.workingDays

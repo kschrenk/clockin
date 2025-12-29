@@ -39,10 +39,11 @@
     "commander": "^12.1.0",
     "csv-parser": "^3.0.0",
     "csv-writer": "^1.6.0",
+    "date-holidays": "^3.26.6",
+    "dayjs": "^1.11.13",
     "dotenv": "^17.2.3",
     "inquirer": "^9.2.12",
-    "open": "^10.1.0",
-    "dayjs": "^1.11.13"
+    "open": "^10.1.0"
   },
   "devDependencies": {
     "@types/inquirer": "^9.0.7",
