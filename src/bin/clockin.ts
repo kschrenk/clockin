@@ -13,6 +13,7 @@ import { VacationManager } from '../vacation-manager.js';
 import { SickManager } from '../sick-manager.js';
 import { SummaryManager } from '../summary-manager.js';
 import { HolidayManager } from '../holiday-manager.js';
+import { dayjs } from '../date-utils.js';
 
 const program = new Command();
 
@@ -266,7 +267,8 @@ Examples:
   clockin add 2025-01-14 09:00 17:30                    # Add 8.5 hour work day
   clockin add 2025-01-14 09:00 17:30 "Project work"     # Add with description
   clockin add 2025-01-14 09:00 17:30 -p 30              # Add with 30 minutes pause
-  clockin add 2025-01-14 09:00 17:30 "Meeting day" -p 45 # Add with description and pause`
+  clockin add 2025-01-14 09:00 17:30 "Meeting day" -p 45 # Add with description and pause
+`
   )
   .action(
     async (
@@ -279,6 +281,7 @@ Examples:
       try {
         const config = await ensureSetup();
         const timeTracker = new TimeTracker(config);
+
         const pauseMinutes = options?.pause ? parseInt(options.pause, 10) : 0;
 
         if (isNaN(pauseMinutes)) {
@@ -289,6 +292,70 @@ Examples:
         await timeTracker.addTimeEntry(date, startTime, endTime, description, pauseMinutes);
       } catch (error) {
         console.log(chalk.red('❌ Error adding time entry:'), error);
+      }
+    }
+  );
+
+program
+  .command('pause-entry [date]')
+  .description('Set or auto-suggest pause time for an existing time entry')
+  .option('--minutes <minutes>', 'Set pause time in minutes for the selected entry')
+  .option(
+    '--suggest',
+    'Auto-calculate pause as (worked minutes - daily target) for the selected entry'
+  )
+  .option('--index <index>', 'Non-interactive selection index (sorted by start time)')
+  .addHelpText(
+    'after',
+    `
+Notes:
+  - You must provide either --minutes <minutes> (set an explicit pause) OR --suggest (auto-calculate).
+  - If [date] is omitted, it defaults to today.
+
+Examples:
+  clockin pause-entry --minutes 30                 # Select from today's entries and set pause to 30 minutes
+  clockin pause-entry 2025-01-14 --minutes 30      # Select from entries on a specific date and set pause
+  clockin pause-entry --suggest                    # Select from today's entries and set pause to overtime minutes
+  clockin pause-entry 2025-01-14 --suggest         # Same, but for a specific date
+  clockin pause-entry 2025-01-14 --suggest --index 0 # Non-interactive selection
+`
+  )
+  .action(
+    async (date?: string, options?: { minutes?: string; suggest?: boolean; index?: string }) => {
+      try {
+        const config = await ensureSetup();
+        const timeTracker = new TimeTracker(config);
+
+        const targetDate = date || dayjs().format('YYYY-MM-DD');
+        const index = options?.index !== undefined ? parseInt(options.index, 10) : undefined;
+
+        if (options?.suggest) {
+          await timeTracker.addSuggestedPauseToExistingEntry(targetDate, {
+            index: Number.isFinite(index) ? index : undefined,
+          });
+          return;
+        }
+
+        if (options?.minutes !== undefined) {
+          const pauseMinutes = parseInt(options.minutes, 10);
+          if (isNaN(pauseMinutes) || pauseMinutes < 0) {
+            console.log(
+              chalk.red('❌ Invalid pause minutes. Please provide a non-negative number.')
+            );
+            return;
+          }
+
+          await timeTracker.addPauseToExistingEntry(pauseMinutes, targetDate, {
+            index: Number.isFinite(index) ? index : undefined,
+          });
+          return;
+        }
+
+        console.log(
+          chalk.yellow('⚠️  Please provide either --minutes <minutes> or --suggest to set a pause.')
+        );
+      } catch (error) {
+        console.log(chalk.red('❌ Error updating pause time:'), error);
       }
     }
   );

@@ -5,6 +5,7 @@ import os from 'os';
 import { TimeTracker } from '../time-tracker.js';
 import { DataManager } from '../data-manager.js';
 import { Config, TimeEntry, VacationEntry, SickEntry } from '../types.js';
+import { createInquirerStub } from '../helper/test-inquirer-stub.js';
 
 function buildConfig(dataDir: string): Config {
   return {
@@ -319,6 +320,153 @@ describe('TimeTracker - Manual Time Entry', () => {
       const timeEntries = await dataManager.loadTimeEntries();
       expect(timeEntries[0].startTime).toMatch(/T\d{2}:\d{2}:\d{2}/);
       expect(timeEntries[0].endTime).toMatch(/T\d{2}:\d{2}:\d{2}/);
+    });
+  });
+
+  describe('Apply pause to an existing entry', () => {
+    it('sets pause time on an existing entry using --index style selection', async () => {
+      const existingEntry1: TimeEntry = {
+        id: 'existing-1',
+        date: '2025-01-14',
+        startTime: '2025-01-14T08:00:00.000Z',
+        endTime: '2025-01-14T16:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+        description: 'Morning shift',
+      };
+      const existingEntry2: TimeEntry = {
+        id: 'existing-2',
+        date: '2025-01-14',
+        startTime: '2025-01-14T17:00:00.000Z',
+        endTime: '2025-01-14T18:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+        description: 'Late shift',
+      };
+
+      await dataManager.saveTimeEntry(existingEntry1);
+      await dataManager.saveTimeEntry(existingEntry2);
+
+      await timeTracker.addPauseToExistingEntry(30, '2025-01-14', { index: 0 });
+
+      const entries = await dataManager.loadTimeEntries();
+      const updated = entries.find((e) => e.id === 'existing-1');
+      expect(updated?.pauseTime).toBe(30);
+
+      const untouched = entries.find((e) => e.id === 'existing-2');
+      expect(untouched?.pauseTime).toBe(0);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('✅ Pause time updated successfully!')
+      );
+    });
+
+    it('prompts for selection when no index is provided (injected inquirer)', async () => {
+      const existingEntry1: TimeEntry = {
+        id: 'existing-1',
+        date: '2025-01-14',
+        startTime: '2025-01-14T08:00:00.000Z',
+        endTime: '2025-01-14T16:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+      };
+      const existingEntry2: TimeEntry = {
+        id: 'existing-2',
+        date: '2025-01-14',
+        startTime: '2025-01-14T17:00:00.000Z',
+        endTime: '2025-01-14T18:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+      };
+
+      await dataManager.saveTimeEntry(existingEntry1);
+      await dataManager.saveTimeEntry(existingEntry2);
+
+      const inquirerStub = createInquirerStub({ index: 1 });
+
+      await timeTracker.addPauseToExistingEntry(15, '2025-01-14', { inquirer: inquirerStub });
+
+      const entries = await dataManager.loadTimeEntries();
+      const updated = entries.find((e) => e.id === 'existing-2');
+      expect(updated?.pauseTime).toBe(15);
+
+      expect(inquirerStub.prompt).toBeDefined();
+    });
+
+    it('does nothing when there are no entries for the requested date', async () => {
+      await timeTracker.addPauseToExistingEntry(10, '2025-01-14', { index: 0 });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('⚠️  No time entries found for')
+      );
+    });
+
+    it('rejects pause time that exceeds session duration', async () => {
+      const existingEntry: TimeEntry = {
+        id: 'existing-1',
+        date: '2025-01-14',
+        startTime: '2025-01-14T08:00:00.000Z',
+        endTime: '2025-01-14T09:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+      };
+
+      await dataManager.saveTimeEntry(existingEntry);
+
+      await timeTracker.addPauseToExistingEntry(999, '2025-01-14', { index: 0 });
+
+      const entries = await dataManager.loadTimeEntries();
+      const still = entries.find((e) => e.id === 'existing-1');
+      expect(still?.pauseTime).toBe(0);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('❌ Pause time cannot exceed the total session duration.')
+      );
+    });
+
+    it('auto-suggests pause based on overtime (worked - daily target)', async () => {
+      // daily target = 40h / 5d = 8h = 480m
+      const existingEntry: TimeEntry = {
+        id: 'existing-1',
+        date: '2025-01-14',
+        startTime: '2025-01-14T08:00:00.000Z',
+        endTime: '2025-01-14T16:20:00.000Z', // 500 minutes
+        pauseTime: 0,
+        type: 'work',
+      };
+
+      await dataManager.saveTimeEntry(existingEntry);
+
+      await timeTracker.addSuggestedPauseToExistingEntry('2025-01-14', { index: 0 });
+
+      const entries = await dataManager.loadTimeEntries();
+      const updated = entries.find((e) => e.id === 'existing-1');
+      expect(updated?.pauseTime).toBe(20);
+    });
+
+    it('floors suggested pause to avoid rounding up due to floating point drift', async () => {
+      // Create a duration with seconds so total minutes is not an integer.
+      // 08:00:00 -> 16:00:54 is 480.9 minutes. Overtime should floor to 0.
+      const existingEntry: TimeEntry = {
+        id: 'existing-1',
+        date: '2025-01-14',
+        startTime: '2025-01-14T08:00:00.000Z',
+        endTime: '2025-01-14T16:00:54.000Z',
+        pauseTime: 0,
+        type: 'work',
+      };
+
+      await dataManager.saveTimeEntry(existingEntry);
+
+      await timeTracker.addSuggestedPauseToExistingEntry('2025-01-14', { index: 0 });
+
+      const entries = await dataManager.loadTimeEntries();
+      const updated = entries.find((e) => e.id === 'existing-1');
+      expect(updated?.pauseTime).toBe(0);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('⚠️  No default pause suggested')
+      );
     });
   });
 });

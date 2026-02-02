@@ -87,6 +87,35 @@ export class DataManager {
     await csvWriter.writeRecords([entry]);
   }
 
+  async rewriteTimeEntries(entries: TimeEntry[]): Promise<void> {
+    await this.ensureDataDirectory();
+
+    // Delete existing file
+    try {
+      await fs.unlink(this.timeEntriesPath);
+    } catch {
+      // file doesn't exist, ok
+    }
+
+    if (entries.length === 0) return;
+
+    const csvWriter = createObjectCsvWriter({
+      path: this.timeEntriesPath,
+      header: [
+        { id: 'id', title: 'ID' },
+        { id: 'date', title: 'Date' },
+        { id: 'startTime', title: 'Start Time' },
+        { id: 'endTime', title: 'End Time' },
+        { id: 'pauseTime', title: 'Pause Time (minutes)' },
+        { id: 'type', title: 'Type' },
+        { id: 'description', title: 'Description' },
+      ],
+      append: false,
+    });
+
+    await csvWriter.writeRecords(entries);
+  }
+
   async loadVacationEntries(): Promise<VacationEntry[]> {
     await this.ensureDataDirectory();
 

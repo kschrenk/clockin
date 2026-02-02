@@ -139,45 +139,16 @@ export class TimeTracker {
     await this.displayTimer();
   }
 
-  async stopTracking(): Promise<void> {
-    const session = await this.getCurrentSession();
-    if (!session) {
-      console.log(chalk.red('\u274c No active tracking session found.'));
-      return;
-    }
-
-    const endTime = dayjs();
-    const totalPausedTimeMs = calculateCurrentPausedTimeMs(session, endTime);
-    const pauseTime = dayjs.duration(totalPausedTimeMs).asMinutes();
-    const timeEntry: TimeEntry = {
-      id: this.generateId(),
-      date: formatInTz(session.startTime, this.config.timezone, 'YYYY-MM-DD'),
-      startTime: dayjs(session.startTime).toISOString(),
-      endTime: endTime.toISOString(),
-      pauseTime,
-      type: 'work',
-    };
-
-    await this.dataManager.saveTimeEntry(timeEntry);
-    await this.clearCurrentSession();
-
-    const workingHours = calculateWorkingTime(session.startTime, endTime.toISOString(), pauseTime);
-
-    console.log(chalk.green('\ud83d\uded1 Stopped tracking time!'));
-    console.log(
-      chalk.cyan(`Total working time: ${dayjs.duration(workingHours).format(FORMAT_TIME)}`)
-    );
-  }
-
   async displayTimer(): Promise<void> {
     const session = await this.getCurrentSession();
     if (!session) {
-      console.log(chalk.red('\u274c No active tracking session found.'));
+      console.log(chalk.red('❌ No active tracking session found.'));
       return;
     }
 
     const today = dayjs(session.startTime);
-    const dailyHours = this.config.hoursPerWeek / this.getWorkingDaysCount();
+    const dailyHours =
+      this.getWorkingDaysCount() > 0 ? this.config.hoursPerWeek / this.getWorkingDaysCount() : 0;
     const dailyHoursMs = dailyHours * 60 * 60 * 1000;
     const todaysEntries = await this.dataManager.loadTimeEntries();
     const todaysCompletedWork = todaysEntries
@@ -205,10 +176,10 @@ export class TimeTracker {
       );
       const endTime = dayjs(expectedEndTimeDate).tz(this.config.timezone).format(FORMAT_TIME);
 
-      console.log(chalk.blue.bold(`\ud83d\udcc5 ${now.format('dddd, MMMM Do, YYYY')}`));
+      console.log(chalk.blue.bold(`📅 ${now.format('dddd, MMMM Do, YYYY')}`));
       console.log(
         chalk.green(
-          `\ud83d\udd50 Started: ${startTimeFormatted} | \u23f1\ufe0f  Session: ${elapsedTime.format(FORMAT_TIME)} | \ud83d\udcca Today's Total: ${dayjs.duration(todaysTotalMs).format(FORMAT_TIME)}`
+          `🕐 Started: ${startTimeFormatted} | ⏱️  Session: ${elapsedTime.format(FORMAT_TIME)} | 📊 Today's Total: ${dayjs.duration(todaysTotalMs).format(FORMAT_TIME)}`
         )
       );
       console.log(
@@ -223,9 +194,7 @@ export class TimeTracker {
       console.log(chalk.magenta(`⏸️  Total Paused: ${pausedTimeFormatted}`));
 
       if (session.isPaused) {
-        console.log(
-          chalk.yellow('\u23f8\ufe0f  PAUSED - Use "clockin resume" to continue tracking')
-        );
+        console.log(chalk.yellow('⏸️  PAUSED - Use "clockin resume" to continue tracking'));
       } else {
         console.log(
           chalk.gray('Use Ctrl+C to exit timer view, then "clockin stop" to finish tracking')
@@ -238,9 +207,84 @@ export class TimeTracker {
 
     process.on('SIGINT', () => {
       clearInterval(interval);
-      console.log(chalk.yellow('\n\u23f0 Timer view exited. Session is still active.'));
+      console.log(chalk.yellow('\n⏰ Timer view exited. Session is still active.'));
       process.exit(0);
     });
+  }
+
+  private getRegularDailyMinutes(): number {
+    const workingDays = this.getWorkingDaysCount();
+    if (workingDays <= 0) return 0;
+    const dailyHours = this.config.hoursPerWeek / workingDays;
+    // Ensure we're working with an integer minute target to avoid floating-point drift.
+    return Math.round(dailyHours * 60);
+  }
+
+  private getSuggestedPauseMinutesForSession(totalWorkMinutes: number): number {
+    const regularDailyMinutes = this.getRegularDailyMinutes();
+    const overtimeMinutes = totalWorkMinutes - regularDailyMinutes;
+    // Use floor so we don't accidentally overshoot the target due to floating point artifacts.
+    return Math.max(0, Math.floor(overtimeMinutes));
+  }
+
+  async stopTracking(options?: {
+    inquirer?: { prompt: (questions: any) => Promise<any> };
+  }): Promise<void> {
+    const session = await this.getCurrentSession();
+    if (!session) {
+      console.log(chalk.red('❌ No active tracking session found.'));
+      return;
+    }
+
+    const endTime = dayjs();
+    const totalPausedTimeMs = calculateCurrentPausedTimeMs(session, endTime);
+    let pauseTime = dayjs.duration(totalPausedTimeMs).asMinutes();
+
+    // compute gross duration (without any pause deducted)
+    const grossMs = calculateWorkingTime(session.startTime, endTime.toISOString(), 0);
+    const grossMinutes = dayjs.duration(grossMs).asMinutes();
+
+    const suggestedPauseMinutes = this.getSuggestedPauseMinutesForSession(grossMinutes);
+
+    // Only prompt if user worked longer than their regular daily time AND the suggested pause is larger
+    // than the currently tracked pause.
+    if (suggestedPauseMinutes > 0 && (pauseTime ?? 0) < suggestedPauseMinutes) {
+      const inquirer = options?.inquirer ?? (await import('inquirer')).default;
+
+      const { applyPause } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'applyPause',
+          message: `You worked ${Math.round(grossMinutes)} minutes today (target: ${Math.round(
+            this.getRegularDailyMinutes()
+          )} minutes). Add default pause of ${suggestedPauseMinutes} minutes?`,
+          default: true,
+        },
+      ]);
+
+      if (applyPause) {
+        pauseTime = suggestedPauseMinutes;
+      }
+    }
+
+    const timeEntry: TimeEntry = {
+      id: this.generateId(),
+      date: formatInTz(session.startTime, this.config.timezone, 'YYYY-MM-DD'),
+      startTime: dayjs(session.startTime).toISOString(),
+      endTime: endTime.toISOString(),
+      pauseTime,
+      type: 'work',
+    };
+
+    await this.dataManager.saveTimeEntry(timeEntry);
+    await this.clearCurrentSession();
+
+    const workingHours = calculateWorkingTime(session.startTime, endTime.toISOString(), pauseTime);
+
+    console.log(chalk.green('🛑 Stopped tracking time!'));
+    console.log(
+      chalk.cyan(`Total working time: ${dayjs.duration(workingHours).format(FORMAT_TIME)}`)
+    );
   }
 
   /**
@@ -398,6 +442,187 @@ export class TimeTracker {
     if (description) {
       console.log(chalk.cyan(`📝 Description: ${description}`));
     }
+  }
+
+  /**
+   * Apply a pause (in minutes) to an *existing* time entry for a given date.
+   *
+   * By default, callers should pass a date string (YYYY-MM-DD). The CLI can default that to "today".
+   */
+  async addPauseToExistingEntry(
+    pauseMinutes: number,
+    dateString: string,
+    options?: { index?: number; inquirer?: { prompt: (questions: any) => Promise<any> } }
+  ): Promise<void> {
+    if (!Number.isFinite(pauseMinutes) || pauseMinutes < 0) {
+      console.log(chalk.red('❌ Pause time must be a non-negative number of minutes.'));
+      return;
+    }
+
+    if (!isValidDateString(dateString)) {
+      console.log(chalk.red('❌ Invalid date format. Please use YYYY-MM-DD format.'));
+      return;
+    }
+
+    const day = dayjs(dateString);
+    const allEntries = await this.dataManager.loadTimeEntries();
+    const entriesForDay = allEntries
+      .filter((e) => dayjs(e.date).isSame(day, 'day'))
+      .sort((a, b) => dayjs(a.startTime).valueOf() - dayjs(b.startTime).valueOf());
+
+    if (entriesForDay.length === 0) {
+      console.log(chalk.yellow(`⚠️  No time entries found for ${day.format('MMM Do, YYYY')}.`));
+      return;
+    }
+
+    let selectedIndex: number | undefined = options?.index;
+
+    if (selectedIndex === undefined) {
+      const inquirer = options?.inquirer ?? (await import('inquirer')).default;
+
+      const choices = entriesForDay.map((e, idx) => {
+        const start = dayjs(e.startTime).tz(this.config.timezone).format('HH:mm');
+        const end = e.endTime ? dayjs(e.endTime).tz(this.config.timezone).format('HH:mm') : '—';
+        const currentPause = e.pauseTime ?? 0;
+        const label = `${start} - ${end} (pause: ${currentPause}m)${e.description ? ` — ${e.description}` : ''}`;
+        return { name: label, value: idx };
+      });
+
+      const answers = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'index',
+          message: `Select the entry to set pause for (${day.format('YYYY-MM-DD')}):`,
+          choices,
+        },
+      ]);
+
+      selectedIndex = answers.index;
+    }
+
+    if (selectedIndex === undefined) {
+      console.log(chalk.red('❌ Invalid selection.'));
+      return;
+    }
+
+    if (
+      !Number.isInteger(selectedIndex) ||
+      selectedIndex < 0 ||
+      selectedIndex >= entriesForDay.length
+    ) {
+      console.log(chalk.red('❌ Invalid selection.'));
+      return;
+    }
+
+    const entryToUpdate = entriesForDay[selectedIndex];
+
+    if (!entryToUpdate.endTime) {
+      console.log(chalk.red('❌ Cannot set pause on an entry without an end time.'));
+      return;
+    }
+
+    const totalMs = calculateWorkingTime(entryToUpdate.startTime, entryToUpdate.endTime, 0);
+    const totalMinutes = dayjs.duration(totalMs).asMinutes();
+
+    if (pauseMinutes > totalMinutes) {
+      console.log(chalk.red('❌ Pause time cannot exceed the total session duration.'));
+      return;
+    }
+
+    const updatedEntry: TimeEntry = {
+      ...entryToUpdate,
+      pauseTime: pauseMinutes,
+    };
+
+    const updatedAll = allEntries.map((e) => (e.id === entryToUpdate.id ? updatedEntry : e));
+    await this.dataManager.rewriteTimeEntries(updatedAll);
+
+    console.log(chalk.green('✅ Pause time updated successfully!'));
+    console.log(
+      chalk.cyan(`📅 Date: ${day.format('MMM Do, YYYY')} | ⏸️  Pause: ${pauseMinutes} minutes`)
+    );
+  }
+
+  async addSuggestedPauseToExistingEntry(
+    dateString: string,
+    options?: { index?: number; inquirer?: { prompt: (questions: any) => Promise<any> } }
+  ): Promise<void> {
+    if (!isValidDateString(dateString)) {
+      console.log(chalk.red('❌ Invalid date format. Please use YYYY-MM-DD format.'));
+      return;
+    }
+
+    const day = dayjs(dateString);
+    const allEntries = await this.dataManager.loadTimeEntries();
+    const entriesForDay = allEntries
+      .filter((e) => dayjs(e.date).isSame(day, 'day'))
+      .sort((a, b) => dayjs(a.startTime).valueOf() - dayjs(b.startTime).valueOf());
+
+    if (entriesForDay.length === 0) {
+      console.log(chalk.yellow(`⚠️  No time entries found for ${day.format('MMM Do, YYYY')}.`));
+      return;
+    }
+
+    // reuse selection logic from addPauseToExistingEntry by delegating
+    let selectedIndex: number | undefined = options?.index;
+    if (selectedIndex === undefined) {
+      const inquirer = options?.inquirer ?? (await import('inquirer')).default;
+      const choices = entriesForDay.map((e, idx) => {
+        const start = dayjs(e.startTime).tz(this.config.timezone).format('HH:mm');
+        const end = e.endTime ? dayjs(e.endTime).tz(this.config.timezone).format('HH:mm') : '—';
+        const currentPause = e.pauseTime ?? 0;
+        const label = `${start} - ${end} (pause: ${currentPause}m)${e.description ? ` — ${e.description}` : ''}`;
+        return { name: label, value: idx };
+      });
+
+      const answers = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'index',
+          message: `Select the entry to auto-set pause for (${day.format('YYYY-MM-DD')}):`,
+          choices,
+        },
+      ]);
+      selectedIndex = answers.index;
+    }
+
+    if (selectedIndex === undefined) {
+      console.log(chalk.red('❌ Invalid selection.'));
+      return;
+    }
+
+    if (
+      !Number.isInteger(selectedIndex) ||
+      selectedIndex < 0 ||
+      selectedIndex >= entriesForDay.length
+    ) {
+      console.log(chalk.red('❌ Invalid selection.'));
+      return;
+    }
+
+    const entryToUpdate = entriesForDay[selectedIndex];
+
+    if (!entryToUpdate.endTime) {
+      console.log(chalk.red('❌ Cannot set pause on an entry without an end time.'));
+      return;
+    }
+
+    const totalMs = calculateWorkingTime(entryToUpdate.startTime, entryToUpdate.endTime, 0);
+    const totalMinutes = dayjs.duration(totalMs).asMinutes();
+    const suggestedPauseMinutes = this.getSuggestedPauseMinutesForSession(totalMinutes);
+
+    if (suggestedPauseMinutes <= 0) {
+      console.log(
+        chalk.yellow(
+          `⚠️  No default pause suggested (worked ${Math.round(totalMinutes)}m, target ${Math.round(
+            this.getRegularDailyMinutes()
+          )}m).`
+        )
+      );
+      return;
+    }
+
+    await this.addPauseToExistingEntry(suggestedPauseMinutes, dateString, { index: selectedIndex });
   }
 
   private async getCurrentSession(): Promise<WorkSession | null> {
