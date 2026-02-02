@@ -89,6 +89,7 @@ You can override paths and other settings via an environment file located in you
    cp .env.example ~/.clockin/.env
    ```
 2. Edit `~/.clockin/.env` and set absolute paths:
+
    ```dotenv
    # Path to the global config directory (defaults to $HOME/.clockin if unset)
    CLOCKIN_CONFIG_PATH=/Users/yourname/.clockin
@@ -96,9 +97,11 @@ You can override paths and other settings via an environment file located in you
    # Path to the data directory (defaults to $HOME/clockin-data if unset)
    CLOCKIN_DATA_PATH=/Users/yourname/clockin-data
    ```
+
 3. (Optional) Restart your terminal session if you rely on shell expansion, or just run the commands again.
 
 Notes:
+
 - Use full absolute paths (the app does not expand `~`).
 - If variables are omitted, built-in defaults are used.
 - The setup wizard can still create initial directories; environment values override defaults.
@@ -191,6 +194,7 @@ clockin holidays -y 2025 --force           # Re-initialize 2025 (replaces existi
 **Duplicate Prevention:** If you try to initialize holidays for a year that already exists, the command will warn you and skip initialization. Use the `--force` flag to replace existing holidays.
 
 **Supported regions:**
+
 - **Germany (DE):** Bavaria (BY) - 13 holidays including Epiphany, Easter-based holidays, Corpus Christi, Assumption of Mary, All Saints' Day
 - **United States (US):** California (CA) - 9 federal holidays including MLK Day, Presidents' Day, Memorial Day, Labor Day, Thanksgiving
 
@@ -224,12 +228,12 @@ clockin timer
 
 ## Data Files
 
-| File                   | Purpose                             |
-| ---------------------- | ----------------------------------- |
-| `time-entries.csv`     | Work sessions (start/end, pauses)   |
-| `vacation-entries.csv` | Vacation periods                    |
+| File                   | Purpose                              |
+| ---------------------- | ------------------------------------ |
+| `time-entries.csv`     | Work sessions (start/end, pauses)    |
+| `vacation-entries.csv` | Vacation periods                     |
 | `sick-entries.csv`     | Sick leave periods with descriptions |
-| `holiday-entries.csv`  | Public holidays by region and year  |
+| `holiday-entries.csv`  | Public holidays by region and year   |
 
 Files are stored in your chosen data directory. Safe to back up with any sync tool.
 
