@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import dayjs, { type Dayjs } from 'dayjs';
+import Table from 'cli-table3';
 import { FORMAT_DATE, FORMAT_DATE_DAY, FORMAT_DATE_DAY_YEAR, formatDate } from './date-utils.js';
 import { Config, VacationEntry } from './types.js';
 import { BaseLeaveManager } from './base-leave-manager.js';
@@ -173,6 +174,54 @@ export class VacationManager extends BaseLeaveManager {
       chalk.cyan(`Date range: ${formatDate(start, 'MMM Do')} - ${formatDate(end, 'MMM Do, YYYY')}`)
     );
     console.log(chalk.cyan(`Working days: ${workingDays.length}`));
+  }
+
+  async listVacations(year?: number): Promise<void> {
+    const targetYear = year ?? dayjs().year();
+    const allEntries = await this.dataManager.loadVacationEntries();
+
+    const entries = allEntries.filter((e) => dayjs(e.startDate).year() === targetYear);
+
+    console.log(chalk.blue.bold(`\n🏖️  Vacation Overview ${targetYear}\n`));
+
+    if (entries.length === 0) {
+      console.log(chalk.yellow(`No vacation entries found for ${targetYear}.`));
+    } else {
+      const table = new Table({
+        head: [
+          chalk.cyan('#'),
+          chalk.cyan('Date Range'),
+          chalk.cyan('Days'),
+          chalk.cyan('Description'),
+        ],
+        colWidths: [4, 30, 6, 35],
+      });
+
+      entries.forEach((entry, i) => {
+        const start = dayjs(entry.startDate);
+        const end = dayjs(entry.endDate);
+        const dateRange =
+          entry.startDate === entry.endDate
+            ? start.format(FORMAT_DATE_DAY_YEAR)
+            : `${start.format(FORMAT_DATE_DAY)} – ${end.format(FORMAT_DATE_DAY_YEAR)}`;
+
+        table.push([String(i + 1), dateRange, String(entry.days), entry.description ?? '']);
+      });
+
+      console.log(table.toString());
+    }
+
+    const usedDays = entries.reduce((sum, e) => sum + e.days, 0);
+    const totalDays = this.config.vacationDaysPerYear;
+    const remainingDays = Math.max(0, totalDays - usedDays);
+
+    console.log(chalk.cyan(`Used:      `) + chalk.white(`${usedDays} / ${totalDays} days`));
+    console.log(
+      remainingDays > 0
+        ? chalk.cyan(`Remaining: `) + chalk.green(`${remainingDays} days`)
+        : chalk.cyan(`Remaining: `) + chalk.red(`0 days`)
+    );
+    console.log();
   }
 
   async getTotalVacationDays(): Promise<number> {

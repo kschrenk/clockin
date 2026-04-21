@@ -9,7 +9,7 @@ export function loadConfig() {
     if (isDevelopment) {
       dotenv.config({ path: '.env.local' });
     } else {
-      dotenv.config({ path: path.join(os.homedir(), '.clockin/.env'), quiet: true });
+      dotenv.config({ path: path.join(os.homedir(), '.config/clockin/.env'), quiet: true });
     }
   }
 }
