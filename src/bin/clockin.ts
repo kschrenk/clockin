@@ -93,6 +93,7 @@ program
   .option('-w, --week', 'Show weekly summary')
   .option('-c, --csv', 'Open CSV file with time data')
   .option('-j, --json', 'Output weekly summary as JSON (use with --week)')
+  .option('-y, --year <year>', 'Show summary for a specific year (defaults to current year)')
   .action(async (options) => {
     try {
       const config = await ensureSetup();
@@ -108,7 +109,12 @@ program
           await summaryManager.showWeeklySummary();
         }
       } else {
-        await summaryManager.showSummary();
+        const year = options.year ? parseInt(options.year, 10) : undefined;
+        if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
+          console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
+          return;
+        }
+        await summaryManager.showSummary({ year });
       }
     } catch (error) {
       console.log(chalk.red('❌ Error showing summary:'), error);
@@ -141,6 +147,27 @@ Examples:
       await vacationManager.addVacation(numDays, startDate);
     } catch (error) {
       console.log(chalk.red('❌ Error adding vacation:'), error);
+    }
+  });
+
+vacationCommand
+  .command('list')
+  .description('List vacation entries for a given year (defaults to current year)')
+  .option('-y, --year <year>', 'Year to list vacations for')
+  .action(async (options: { year?: string }) => {
+    try {
+      const config = await ensureSetup();
+      const vacationManager = new VacationManager(config);
+
+      const year = options.year ? parseInt(options.year, 10) : undefined;
+      if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
+        console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
+        return;
+      }
+
+      await vacationManager.listVacations(year);
+    } catch (error) {
+      console.log(chalk.red('❌ Error listing vacations:'), error);
     }
   });
 

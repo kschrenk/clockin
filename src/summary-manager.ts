@@ -3,7 +3,7 @@ import Table from 'cli-table3';
 import open from 'open';
 import fs from 'fs/promises';
 import { createObjectCsvWriter } from 'csv-writer';
-import { Config, SummaryData, TimeEntry } from './types.js';
+import { Config, SummaryData, TimeEntry, VacationEntry, SickEntry } from './types.js';
 import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
 import { SickManager } from './sick-manager.js';
@@ -63,13 +63,13 @@ export class SummaryManager {
     this.holidayManager = new HolidayManager(config);
   }
 
-  async showSummary(): Promise<void> {
-    const summaryData = await this.calculateSummaryData();
+  async showSummary(options: { year?: number } = {}): Promise<void> {
+    const targetYear = options.year ?? dayjs().year();
+    const summaryData = await this.calculateSummaryData(targetYear);
 
     const startDate = dayjs(summaryData.startDate);
     const endDate = dayjs(summaryData.endDate);
 
-    // Show year on both dates if they span multiple years, otherwise use compact format
     const dateRangeDisplay =
       startDate.year() !== endDate.year()
         ? `${startDate.format(FORMAT_DATE_DAY_YEAR)} - ${endDate.format(FORMAT_DATE_DAY_YEAR)}`
@@ -79,20 +79,29 @@ export class SummaryManager {
 
     const table = new Table({
       head: [chalk.cyan('Metric'), chalk.cyan('Value')],
-      colWidths: [30, 20],
+      colWidths: [42, 20],
     });
 
     table.push(
       ['Total Hours Worked', dayjs.duration(summaryData.totalHoursWorked).asHours().toFixed(1)],
       ['Expected Hours/Week', summaryData.expectedHoursPerWeek.toFixed(1)],
       ['Current Week Hours', dayjs.duration(summaryData.currentWeekHours).asHours().toFixed(1)],
-      ['Overtime Hours', this.formatHours(summaryData.overtimeHours)], // in 0.0h
-      ['Vacation Days Used', `${summaryData.totalVacationDays}`],
-      ['Vacation Days Remaining', `${summaryData.remainingVacationDays}`],
-      ['Sick Days Used', `${summaryData.totalSickDays}`]
+      ['Overtime (all-time)', this.formatHours(summaryData.overtimeHours)],
+      [`Vacation Days Used (${targetYear})`, `${summaryData.totalVacationDays}`],
+      ['Vacation Days Remaining (+ carryover)', `${summaryData.remainingVacationDays}`],
+      [`Sick Days Used (${targetYear})`, `${summaryData.totalSickDays}`]
     );
 
     console.log(table.toString());
+
+    if (targetYear === summaryData.firstTrackedYear) {
+      console.log(
+        chalk.gray(
+          `ℹ️  ${targetYear} is your first tracked year. Unused vacation days will not carry over to ${targetYear + 1}.`
+        )
+      );
+    }
+
     console.log();
   }
 
@@ -403,118 +412,132 @@ export class SummaryManager {
     }
   }
 
-  private async calculateSummaryData(): Promise<SummaryData> {
-    const timeEntries = await this.dataManager.loadTimeEntries();
-
+  private async calculateSummaryData(year?: number): Promise<SummaryData> {
     const now = dayjs();
     const weekStart = getWeekStart(now);
     const weekEnd = getWeekEnd(now);
 
-    // Determine start date: use config.startDate, or fall back to first time entry date, or today
-    // This is the employment start date used for calculating expected hours
-    let employmentStartDate: Dayjs;
-    if (this.config.startDate && isValidDateString(this.config.startDate)) {
-      employmentStartDate = dayjs(this.config.startDate);
-    } else if (timeEntries.length > 0) {
-      const sortedEntries = timeEntries
-        .filter((e) => isValidDateString(e.date))
-        .sort((a, b) => dayjs(a.date).valueOf() - dayjs(b.date).valueOf());
-      employmentStartDate = sortedEntries.length > 0 ? dayjs(sortedEntries[0].date) : now;
-    } else {
-      employmentStartDate = now;
-    }
+    // Load all data upfront so we can compute both year-scoped and all-time metrics
+    const allTimeEntries = await this.dataManager.loadTimeEntries();
+    const allVacationEntries = await this.dataManager.loadVacationEntries();
+    const allSickEntries = await this.dataManager.loadSickEntries();
 
-    // Calculate elapsed weeks from employment start date to now (use fractional value for accuracy)
-    // For example, if someone starts on Friday, ~0.4 weeks have elapsed, not 1 full week
-    const elapsedWeeks = now.diff(employmentStartDate, 'week', true);
-    const expectedTotalHours = elapsedWeeks * this.config.hoursPerWeek;
-
-    // Sum up all time entries
-    let totalHoursWorked = 0;
-    let currentWeekHours = 0;
-
-    for (const entry of timeEntries) {
-      if (!entry.endTime) continue;
-      const workingMs = calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
-      totalHoursWorked += workingMs;
-
-      if (isValidDateString(entry.date)) {
-        const entryDate = dayjs(entry.date).tz(this.config.timezone);
-        if (
-          entryDate.isSame(weekStart, 'day') ||
-          entryDate.isSame(weekEnd, 'day') ||
-          (entryDate.isAfter(weekStart) && entryDate.isBefore(weekEnd))
-        ) {
-          currentWeekHours += workingMs;
-        }
-      }
-    }
-
-    // Add vacation days as hours worked (full working day hours)
     const workingHoursPerDay = this.calculateWorkingHoursPerDay();
     const workingHoursPerDayMs = dayjs.duration(workingHoursPerDay, 'hours').asMilliseconds();
-
-    const totalVacationDays = await this.vacationManager.getTotalVacationDays();
-    totalHoursWorked += totalVacationDays * workingHoursPerDayMs;
-
-    // Add sick days as hours worked (full working day hours)
-    const totalSickDays = await this.sickManager.getTotalSickDays();
-    totalHoursWorked += totalSickDays * workingHoursPerDayMs;
-
-    // Add holidays as hours worked (full working day hours)
-    // Only count holidays from employment start date onward to avoid counting holidays
-    // that occurred before the user started working.
-    //
-    // Important: Avoid double-counting when a holiday overlaps with a vacation or sick day.
-    // Holidays are imported separately and overlap prevention currently only exists for
-    // vacation<->sick and leave<->time-entries.
-
-    const [vacationEntries, sickEntries] = await Promise.all([
-      this.dataManager.loadVacationEntries(),
-      this.dataManager.loadSickEntries(),
-    ]);
-
-    const leaveDateKeys = new Set<string>();
-
-    for (const entry of vacationEntries) {
-      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) continue;
-      let cursor = dayjs(entry.startDate);
-      const end = dayjs(entry.endDate);
-      while (cursor.isSameOrBefore(end, 'day')) {
-        leaveDateKeys.add(cursor.format(FORMAT_DATE));
-        cursor = cursor.add(1, 'day');
-      }
-    }
-
-    for (const entry of sickEntries) {
-      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) continue;
-      let cursor = dayjs(entry.startDate);
-      const end = dayjs(entry.endDate);
-      while (cursor.isSameOrBefore(end, 'day')) {
-        leaveDateKeys.add(cursor.format(FORMAT_DATE));
-        cursor = cursor.add(1, 'day');
-      }
-    }
-
-    const holidayDates = await this.holidayManager.getHolidayDates(employmentStartDate, now);
     const workingDayNames = new Set(
       this.config.workingDays.filter((d) => d.isWorkingDay).map((d) => d.day.toLowerCase())
     );
 
-    const workingHolidays = holidayDates.filter((date) => {
-      if (!workingDayNames.has(date.format('dddd').toLowerCase())) return false;
-      return !leaveDateKeys.has(date.format(FORMAT_DATE));
+    const employmentStartDate = this.resolveEmploymentStartDate(allTimeEntries, now);
+
+    // --- Year-scoped range ---
+    const targetYear = year ?? now.year();
+    const yearStart = dayjs(`${targetYear}-01-01`).startOf('day');
+    const yearEnd = targetYear === now.year() ? now : dayjs(`${targetYear}-12-31`).endOf('day');
+    // Display start is the later of Jan 1 and the employment start, clamped to yearEnd
+    const rawRangeStart = employmentStartDate.isAfter(yearStart) ? employmentStartDate : yearStart;
+    const rangeStart = rawRangeStart.isAfter(yearEnd) ? yearEnd : rawRangeStart;
+    const rangeEnd = yearEnd;
+
+    // Year-scoped time entries
+    const yearTimeEntries = allTimeEntries.filter((e) => {
+      if (!isValidDateString(e.date)) return false;
+      const d = dayjs(e.date);
+      return !d.isBefore(rangeStart, 'day') && d.isSameOrBefore(rangeEnd, 'day');
     });
 
-    totalHoursWorked += workingHolidays.length * workingHoursPerDayMs;
+    // Year-scoped vacation / sick (keyed by startDate year so multi-day blocks aren't split)
+    const yearVacationEntries = allVacationEntries.filter(
+      (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
+    );
+    const yearSickEntries = allSickEntries.filter(
+      (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
+    );
 
-    const remainingVacationDays = await this.vacationManager.getRemainingVacationDays();
+    const totalVacationDays = yearVacationEntries.reduce((sum, e) => sum + e.days, 0);
+    const totalSickDays = yearSickEntries.reduce((sum, e) => sum + e.days, 0);
 
-    // Calculate overtime (can be negative for undertime)
-    const totalWorkedHours = dayjs.duration(totalHoursWorked).asHours();
+    // Year-scoped total hours
+    let totalHoursWorked = 0;
+    for (const entry of yearTimeEntries) {
+      if (!entry.endTime) continue;
+      totalHoursWorked += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
+    }
+    totalHoursWorked += (totalVacationDays + totalSickDays) * workingHoursPerDayMs;
+
+    // Year-scoped holidays (avoid double-counting with leave)
+    const yearLeaveDates = this.buildLeaveDateSet(yearVacationEntries, yearSickEntries);
+    const yearHolidayDates = await this.holidayManager.getHolidayDates(rangeStart, rangeEnd);
+    const yearWorkingHolidays = yearHolidayDates.filter(
+      (d) =>
+        workingDayNames.has(d.format('dddd').toLowerCase()) &&
+        !yearLeaveDates.has(d.format(FORMAT_DATE))
+    );
+    totalHoursWorked += yearWorkingHolidays.length * workingHoursPerDayMs;
+
+    // Current-week hours (always uses all entries, not year-scoped)
+    let currentWeekHours = 0;
+    for (const entry of allTimeEntries) {
+      if (!entry.endTime || !isValidDateString(entry.date)) continue;
+      const entryDate = dayjs(entry.date).tz(this.config.timezone);
+      if (isDateInWeekRange(weekStart, weekEnd, entryDate)) {
+        currentWeekHours += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
+      }
+    }
+
+    // --- All-time overtime ---
+    let allTimeHoursWorked = 0;
+    for (const entry of allTimeEntries) {
+      if (!entry.endTime) continue;
+      allTimeHoursWorked += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
+    }
+    const allTimeVacDays = allVacationEntries.reduce((sum, e) => sum + e.days, 0);
+    const allTimeSickDays = allSickEntries.reduce((sum, e) => sum + e.days, 0);
+    allTimeHoursWorked += (allTimeVacDays + allTimeSickDays) * workingHoursPerDayMs;
+
+    const allTimeLeaveDates = this.buildLeaveDateSet(allVacationEntries, allSickEntries);
+    const allTimeHolidayDates = await this.holidayManager.getHolidayDates(employmentStartDate, now);
+    const allTimeWorkingHolidays = allTimeHolidayDates.filter(
+      (d) =>
+        workingDayNames.has(d.format('dddd').toLowerCase()) &&
+        !allTimeLeaveDates.has(d.format(FORMAT_DATE))
+    );
+    allTimeHoursWorked += allTimeWorkingHolidays.length * workingHoursPerDayMs;
+
+    const elapsedWeeks = now.diff(employmentStartDate, 'week', true);
+    const expectedTotalHours = elapsedWeeks * this.config.hoursPerWeek;
     const overtimeHours = dayjs
-      .duration(totalWorkedHours - expectedTotalHours, 'hours')
+      .duration(dayjs.duration(allTimeHoursWorked).asHours() - expectedTotalHours, 'hours')
       .asMilliseconds();
+
+    // --- Remaining vacation ---
+    // Year 1 (first tracked year) is a clean slate: its unused days never carry forward.
+    // This prevents incorrect carryover from a year where tracking was incomplete.
+    // From year 2 onwards, unused days accumulate normally.
+    const firstTrackedYear = employmentStartDate.year();
+    let remainingVacationDays: number;
+
+    if (targetYear === firstTrackedYear) {
+      // Year 1: simple entitlement minus what was taken this year, no carryover
+      remainingVacationDays = Math.max(0, this.config.vacationDaysPerYear - totalVacationDays);
+    } else {
+      // Year 2+: accumulate from year 2 onwards (year 1 is excluded from carryover)
+      const yearsFromYear2 = targetYear - firstTrackedYear; // each year after year 1
+      const vacDaysFromYear2ToTarget = allVacationEntries
+        .filter((e) => {
+          if (!isValidDateString(e.startDate)) return false;
+          const y = dayjs(e.startDate).year();
+          return y > firstTrackedYear && y <= targetYear;
+        })
+        .reduce((sum, e) => sum + e.days, 0);
+      remainingVacationDays = Math.max(
+        0,
+        yearsFromYear2 * this.config.vacationDaysPerYear - vacDaysFromYear2ToTarget
+      );
+    }
+
+    // For display, show the full year range when employment started after this year
+    const displayStart = employmentStartDate.isAfter(yearEnd) ? yearStart : rangeStart;
 
     return {
       totalHoursWorked,
@@ -524,9 +547,37 @@ export class SummaryManager {
       expectedHoursPerWeek: this.config.hoursPerWeek,
       currentWeekHours,
       overtimeHours,
-      startDate: employmentStartDate.format(FORMAT_DATE),
-      endDate: now.format(FORMAT_DATE),
+      startDate: displayStart.format(FORMAT_DATE),
+      endDate: rangeEnd.format(FORMAT_DATE),
+      firstTrackedYear,
     };
+  }
+
+  private resolveEmploymentStartDate(timeEntries: TimeEntry[], now: Dayjs): Dayjs {
+    if (this.config.startDate && isValidDateString(this.config.startDate)) {
+      return dayjs(this.config.startDate);
+    }
+    const sorted = timeEntries
+      .filter((e) => isValidDateString(e.date))
+      .sort((a, b) => dayjs(a.date).valueOf() - dayjs(b.date).valueOf());
+    return sorted.length > 0 ? dayjs(sorted[0].date) : now;
+  }
+
+  private buildLeaveDateSet(
+    vacationEntries: VacationEntry[],
+    sickEntries: SickEntry[]
+  ): Set<string> {
+    const dateKeys = new Set<string>();
+    for (const entry of [...vacationEntries, ...sickEntries]) {
+      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) continue;
+      let cursor = dayjs(entry.startDate);
+      const end = dayjs(entry.endDate);
+      while (cursor.isSameOrBefore(end, 'day')) {
+        dateKeys.add(cursor.format(FORMAT_DATE));
+        cursor = cursor.add(1, 'day');
+      }
+    }
+    return dateKeys;
   }
 
   private formatHours(milliseconds: number): string {

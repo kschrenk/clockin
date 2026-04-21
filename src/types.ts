@@ -65,4 +65,5 @@ export interface SummaryData {
   overtimeHours: number; // in milliseconds
   startDate: string; // Employment start date (YYYY-MM-DD)
   endDate: string; // Calculation end date (YYYY-MM-DD)
+  firstTrackedYear: number; // Calendar year tracking began; unused days in this year don't carry over
 }
