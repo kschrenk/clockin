@@ -39,7 +39,9 @@ describe('SummaryManager (JSON weekly summary)', () => {
 
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      console.error('[summary-manager.test] Failed pre-test cleanup:', error);
+    }
 
     const testConfig: Config = {
       name: 'Test User',
@@ -67,7 +69,9 @@ describe('SummaryManager (JSON weekly summary)', () => {
     vi.restoreAllMocks();
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      console.error('[summary-manager.test] Failed post-test cleanup:', error);
+    }
   });
 
   it('returns correct weekly JSON summary without vacation', async () => {
@@ -477,7 +481,9 @@ describe('SummaryManager calculateSummaryData', () => {
 
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      console.error('[summary-manager.test] Failed pre-test cleanup:', error);
+    }
 
     const testConfig: Config = {
       name: 'Test User',
@@ -505,7 +511,9 @@ describe('SummaryManager calculateSummaryData', () => {
     vi.restoreAllMocks();
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      console.error('[summary-manager.test] Failed post-test cleanup:', error);
+    }
   });
 
   it('formatHours returns 0.0h for 0 and near-zero values (avoids -0.0h)', async () => {
