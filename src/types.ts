@@ -40,6 +40,14 @@ export interface SickEntry {
   description?: string;
 }
 
+export interface ParentalLeaveEntry {
+  id: string;
+  startDate: string; // ISO date string
+  endDate: string; // ISO date string
+  days: number; // calendar days
+  description?: string;
+}
+
 export interface HolidayEntry {
   id: string;
   date: string; // ISO date string
@@ -59,6 +67,7 @@ export interface SummaryData {
   totalHoursWorked: number;
   totalVacationDays: number;
   totalSickDays: number;
+  totalParentalLeaveDays: number;
   remainingVacationDays: number;
   expectedHoursPerWeek: number;
   currentWeekHours: number;

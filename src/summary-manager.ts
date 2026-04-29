@@ -3,13 +3,21 @@ import Table from 'cli-table3';
 import open from 'open';
 import fs from 'fs/promises';
 import { createObjectCsvWriter } from 'csv-writer';
-import { Config, SummaryData, TimeEntry, VacationEntry, SickEntry } from './types.js';
+import {
+  Config,
+  SummaryData,
+  TimeEntry,
+  VacationEntry,
+  SickEntry,
+  ParentalLeaveEntry,
+} from './types.js';
 import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
 import { SickManager } from './sick-manager.js';
 import { HolidayManager } from './holiday-manager.js';
 import {
   calculateWorkingTime,
+  countWorkingDaysInRange,
   dayjs,
   isValidDateString,
   getWeekStart,
@@ -89,7 +97,8 @@ export class SummaryManager {
       ['Overtime (all-time)', this.formatHours(summaryData.overtimeHours)],
       [`Vacation Days Used (${targetYear})`, `${summaryData.totalVacationDays}`],
       ['Vacation Days Remaining (+ carryover)', `${summaryData.remainingVacationDays}`],
-      [`Sick Days Used (${targetYear})`, `${summaryData.totalSickDays}`]
+      [`Sick Days Used (${targetYear})`, `${summaryData.totalSickDays}`],
+      [`Parental Leave Days Used (${targetYear})`, `${summaryData.totalParentalLeaveDays}`]
     );
 
     console.log(table.toString());
@@ -116,6 +125,7 @@ export class SummaryManager {
     const weeklyTimeEntries = await this.getWeeklyTimeEntries(weekStart, weekEnd);
     const weeklyVacationDates = await this.getWeeklyVacationEntries(weekStart, weekEnd);
     const weeklySickDates = await this.getWeeklySickEntries(weekStart, weekEnd);
+    const weeklyParentalLeaveDates = await this.getWeeklyParentalLeaveEntries(weekStart, weekEnd);
     const weeklyHolidayDates = await this.holidayManager.getHolidayDates(weekStart, weekEnd);
     const rows: WeeklySummaryRow[] = [];
 
@@ -134,6 +144,7 @@ export class SummaryManager {
         const dayTimeEntries = weeklyTimeEntries.filter((e) => dayjs(e.date).isSame(cursor, 'day'));
         const isVacationDay = weeklyVacationDates.some((d) => d.isSame(cursor, 'day'));
         const isSickDay = weeklySickDates.some((d) => d.isSame(cursor, 'day'));
+        const isParentalLeaveDay = weeklyParentalLeaveDates.some((d) => d.isSame(cursor, 'day'));
         const isHoliday = weeklyHolidayDates.some((d) => d.isSame(cursor, 'day'));
 
         // Handle leave days (vacation/sick/holiday)
@@ -148,14 +159,16 @@ export class SummaryManager {
         // 3. Legal/compliance requirements often treat sick leave differently than vacation
         // 4. In payroll systems, sick days may have different accrual rules than vacation days
 
-        // Determine leave type based on precedence
+        // Precedence: Holiday > Sick > Vacation > Parental Leave
         const leaveType = isHoliday
           ? 'holiday'
           : isSickDay
             ? 'sick'
             : isVacationDay
               ? 'vacation'
-              : null;
+              : isParentalLeaveDay
+                ? 'parental'
+                : null;
 
         // Calculate hours for leave days (used by all leave types)
         const workingHoursPerDay = this.calculateWorkingHoursPerDay();
@@ -201,6 +214,20 @@ export class SummaryManager {
               hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
               entryType: 'vacation',
               isVacation: true,
+            });
+            break;
+
+          case 'parental':
+            rows.push({
+              date: dateKey,
+              displayDate,
+              start: null,
+              end: null,
+              breakMinutes: null,
+              hoursMs: leaveHoursMs,
+              hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
+              entryType: 'parental',
+              isVacation: false,
             });
             break;
         }
@@ -380,6 +407,119 @@ export class SummaryManager {
     return sickDates;
   };
 
+  private getWeeklyParentalLeaveEntries = async (
+    weekStart: Dayjs,
+    weekEnd: Dayjs
+  ): Promise<Dayjs[]> => {
+    const entries = await this.dataManager.loadParentalLeaveEntries();
+    const dates: Dayjs[] = [];
+
+    entries.forEach((entry) => {
+      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) return;
+
+      const entryStartDate = dayjs(entry.startDate);
+      const entryEndDate = dayjs(entry.endDate);
+
+      let cursor = entryStartDate;
+      while (isDateInWeekRange(weekStart, weekEnd, cursor) && cursor.isSameOrBefore(entryEndDate)) {
+        dates.push(cursor);
+        cursor = cursor.add(1, 'day');
+      }
+    });
+
+    return dates;
+  };
+
+  async showLeaveSummary(options: { year?: number } = {}): Promise<void> {
+    const targetYear = options.year ?? dayjs().year();
+
+    const allVacationEntries = await this.dataManager.loadVacationEntries();
+    const allSickEntries = await this.dataManager.loadSickEntries();
+    const allParentalLeaveEntries = await this.dataManager.loadParentalLeaveEntries();
+
+    const vacationEntries = allVacationEntries.filter(
+      (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
+    );
+    const sickEntries = allSickEntries.filter(
+      (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
+    );
+    const parentalEntries = allParentalLeaveEntries.filter(
+      (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
+    );
+
+    console.log(chalk.blue.bold(`\n🗓️  Leave Summary ${targetYear}\n`));
+
+    type LeaveEntry = { startDate: string; endDate: string; days: number; description?: string };
+
+    const renderSection = (
+      label: string,
+      emoji: string,
+      entries: LeaveEntry[],
+      budget?: number
+    ): number => {
+      const totalDays = entries.reduce((sum, e) => sum + e.days, 0);
+      const entryWord = entries.length === 1 ? 'entry' : 'entries';
+      console.log(
+        chalk.blue.bold(
+          `${emoji}  ${label}  (${entries.length} ${entryWord}${entries.length > 0 ? ` — ${totalDays} days` : ''})`
+        )
+      );
+
+      if (entries.length === 0) {
+        console.log(chalk.yellow(`  No ${label.toLowerCase()} entries for ${targetYear}.\n`));
+        return 0;
+      }
+
+      const table = new Table({
+        head: [
+          chalk.cyan('#'),
+          chalk.cyan('Date Range'),
+          chalk.cyan('Days'),
+          chalk.cyan('Description'),
+        ],
+        colWidths: [4, 30, 6, 35],
+      });
+
+      entries.forEach((entry, i) => {
+        const start = dayjs(entry.startDate);
+        const end = dayjs(entry.endDate);
+        const dateRange =
+          entry.startDate === entry.endDate
+            ? start.format(FORMAT_DATE_DAY_YEAR)
+            : `${start.format(FORMAT_DATE_DAY)} → ${end.format(FORMAT_DATE_DAY_YEAR)}`;
+        table.push([`${i + 1}`, dateRange, `${entry.days}`, entry.description || '']);
+      });
+
+      console.log(table.toString());
+
+      let totalLine = chalk.cyan(`Total: ${totalDays} day${totalDays !== 1 ? 's' : ''}`);
+      if (budget !== undefined) {
+        const remaining = Math.max(0, budget - totalDays);
+        totalLine += chalk.gray(`  (${budget} entitlement — ${remaining} remaining)`);
+      }
+      console.log(totalLine + '\n');
+
+      return totalDays;
+    };
+
+    const vacTotal = renderSection(
+      'Vacation',
+      '🏖️',
+      vacationEntries,
+      this.config.vacationDaysPerYear
+    );
+    const sickTotal = renderSection('Sick Leave', '🤒', sickEntries);
+    const parentalTotal = renderSection('Parental Leave', '👶', parentalEntries);
+
+    const grandTotal = vacTotal + sickTotal + parentalTotal;
+    console.log(
+      chalk.blue.bold(
+        `Grand Total: ${grandTotal} leave day${grandTotal !== 1 ? 's' : ''} in ${targetYear}`
+      )
+    );
+    console.log();
+  }
+
   async openCsvFile(): Promise<void> {
     const csvPath = this.dataManager.getTimeEntriesPath();
     await this.dataManager.ensureDataDirectory();
@@ -421,6 +561,7 @@ export class SummaryManager {
     const allTimeEntries = await this.dataManager.loadTimeEntries();
     const allVacationEntries = await this.dataManager.loadVacationEntries();
     const allSickEntries = await this.dataManager.loadSickEntries();
+    const allParentalLeaveEntries = await this.dataManager.loadParentalLeaveEntries();
 
     const workingHoursPerDay = this.calculateWorkingHoursPerDay();
     const workingHoursPerDayMs = dayjs.duration(workingHoursPerDay, 'hours').asMilliseconds();
@@ -446,16 +587,32 @@ export class SummaryManager {
       return !d.isBefore(rangeStart, 'day') && d.isSameOrBefore(rangeEnd, 'day');
     });
 
-    // Year-scoped vacation / sick (keyed by startDate year so multi-day blocks aren't split)
+    // Year-scoped vacation / sick / parental (keyed by startDate year so multi-day blocks aren't split)
     const yearVacationEntries = allVacationEntries.filter(
       (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
     );
     const yearSickEntries = allSickEntries.filter(
       (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
     );
+    const yearParentalLeaveEntries = allParentalLeaveEntries.filter(
+      (e) => isValidDateString(e.startDate) && dayjs(e.startDate).year() === targetYear
+    );
 
     const totalVacationDays = yearVacationEntries.reduce((sum, e) => sum + e.days, 0);
     const totalSickDays = yearSickEntries.reduce((sum, e) => sum + e.days, 0);
+    const totalParentalLeaveDays = yearParentalLeaveEntries.reduce((sum, e) => sum + e.days, 0);
+
+    // Calendar-day entries (sick, parental): only working days contribute hours.
+    const yearSickWorkingDays = yearSickEntries.reduce(
+      (sum, e) =>
+        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
+      0
+    );
+    const yearParentalWorkingDays = yearParentalLeaveEntries.reduce(
+      (sum, e) =>
+        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
+      0
+    );
 
     // Year-scoped total hours
     let totalHoursWorked = 0;
@@ -463,10 +620,15 @@ export class SummaryManager {
       if (!entry.endTime) continue;
       totalHoursWorked += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
     }
-    totalHoursWorked += (totalVacationDays + totalSickDays) * workingHoursPerDayMs;
+    totalHoursWorked +=
+      (totalVacationDays + yearSickWorkingDays + yearParentalWorkingDays) * workingHoursPerDayMs;
 
     // Year-scoped holidays (avoid double-counting with leave)
-    const yearLeaveDates = this.buildLeaveDateSet(yearVacationEntries, yearSickEntries);
+    const yearLeaveDates = this.buildLeaveDateSet(
+      yearVacationEntries,
+      yearSickEntries,
+      yearParentalLeaveEntries
+    );
     const yearHolidayDates = await this.holidayManager.getHolidayDates(rangeStart, rangeEnd);
     const yearWorkingHolidays = yearHolidayDates.filter(
       (d) =>
@@ -492,10 +654,24 @@ export class SummaryManager {
       allTimeHoursWorked += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
     }
     const allTimeVacDays = allVacationEntries.reduce((sum, e) => sum + e.days, 0);
-    const allTimeSickDays = allSickEntries.reduce((sum, e) => sum + e.days, 0);
-    allTimeHoursWorked += (allTimeVacDays + allTimeSickDays) * workingHoursPerDayMs;
+    const allTimeSickWorkingDays = allSickEntries.reduce(
+      (sum, e) =>
+        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
+      0
+    );
+    const allTimeParentalWorkingDays = allParentalLeaveEntries.reduce(
+      (sum, e) =>
+        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
+      0
+    );
+    allTimeHoursWorked +=
+      (allTimeVacDays + allTimeSickWorkingDays + allTimeParentalWorkingDays) * workingHoursPerDayMs;
 
-    const allTimeLeaveDates = this.buildLeaveDateSet(allVacationEntries, allSickEntries);
+    const allTimeLeaveDates = this.buildLeaveDateSet(
+      allVacationEntries,
+      allSickEntries,
+      allParentalLeaveEntries
+    );
     const allTimeHolidayDates = await this.holidayManager.getHolidayDates(employmentStartDate, now);
     const allTimeWorkingHolidays = allTimeHolidayDates.filter(
       (d) =>
@@ -543,6 +719,7 @@ export class SummaryManager {
       totalHoursWorked,
       totalVacationDays,
       totalSickDays,
+      totalParentalLeaveDays,
       remainingVacationDays,
       expectedHoursPerWeek: this.config.hoursPerWeek,
       currentWeekHours,
@@ -565,10 +742,11 @@ export class SummaryManager {
 
   private buildLeaveDateSet(
     vacationEntries: VacationEntry[],
-    sickEntries: SickEntry[]
+    sickEntries: SickEntry[],
+    parentalLeaveEntries: ParentalLeaveEntry[] = []
   ): Set<string> {
     const dateKeys = new Set<string>();
-    for (const entry of [...vacationEntries, ...sickEntries]) {
+    for (const entry of [...vacationEntries, ...sickEntries, ...parentalLeaveEntries]) {
       if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) continue;
       let cursor = dayjs(entry.startDate);
       const end = dayjs(entry.endDate);

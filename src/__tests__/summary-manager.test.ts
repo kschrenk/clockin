@@ -484,11 +484,22 @@ describe('SummaryManager calculateSummaryData', () => {
     } catch (error) {
       console.error('[summary-manager.test] Failed pre-test cleanup:', error);
     }
+  });
 
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    try {
+      await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it('formatHours returns 0.0h for 0 and near-zero values (avoids -0.0h)', async () => {
     const testConfig: Config = {
       name: 'Test User',
       hoursPerWeek: 40,
       vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
       workingDays: [
         { day: 'monday', isWorkingDay: true },
         { day: 'tuesday', isWorkingDay: true },
@@ -503,17 +514,64 @@ describe('SummaryManager calculateSummaryData', () => {
       timezone: 'Europe/Berlin',
     };
 
-    summaryManager = new SummaryManager(testConfig);
+    const testSummaryManager = new SummaryManager(testConfig);
+
+    expect((testSummaryManager as any).formatHours(0)).toBe('0.0h');
+
+    // Explicitly ensure -0 is normalized.
+    expect((testSummaryManager as any).formatHours(-0)).toBe('0.0h');
+
+    // 1ms is ~2.78e-7 hours and should round to 0.0h without a sign.
+    expect((testSummaryManager as any).formatHours(1)).toBe('0.0h');
+    expect((testSummaryManager as any).formatHours(-1)).toBe('0.0h');
   });
 
-  afterEach(async () => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-    try {
-      await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch (error) {
-      console.error('[summary-manager.test] Failed post-test cleanup:', error);
-    }
+  it('sick period spanning weekend counts only working days toward hours', async () => {
+    vi.setSystemTime(new Date('2025-11-16T23:59:59.999Z'));
+
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    const testSummaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadHolidayEntries').mockResolvedValue([]);
+
+    // Sick Mon–Sun: 7 calendar days, but only 5 are working days (Mon–Fri)
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([
+      {
+        id: 's1',
+        startDate: '2025-11-10', // Monday
+        endDate: '2025-11-16', // Sunday
+        days: 7,
+        description: 'Flu',
+      },
+    ]);
+
+    const summaryData = await (testSummaryManager as any).calculateSummaryData();
+
+    // Display value stays as calendar days
+    expect(summaryData.totalSickDays).toBe(7);
+
+    // Hours: only 5 working days × 8h = 40h (not 7 × 8h = 56h)
+    expect(summaryData.totalHoursWorked).toBe(5 * 8 * 3_600_000);
   });
 
   it('formatHours returns 0.0h for 0 and near-zero values (avoids -0.0h)', async () => {

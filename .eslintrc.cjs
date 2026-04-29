@@ -18,6 +18,14 @@ module.exports = {
     'plugin:prettier/recommended',
   ],
   ignorePatterns: ['dist/', 'node_modules/', 'coverage/', '*.d.ts'],
+  overrides: [
+    {
+      files: ['**/*.test.ts'],
+      rules: {
+        'no-empty': ['error', { allowEmptyCatch: true }],
+      },
+    },
+  ],
   rules: {
     '@typescript-eslint/no-unused-vars': [
       'warn',
