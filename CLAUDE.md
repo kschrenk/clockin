@@ -30,17 +30,17 @@ To run a single test file: `pnpm vitest run src/__tests__/<file>.test.ts`
 
 Each domain has a dedicated manager:
 
-| Manager | File | Responsibility |
-|---|---|---|
-| `TimeTracker` | `time-tracker.ts` | start/pause/resume/stop sessions, manual entry, live timer display |
-| `SummaryManager` | `summary-manager.ts` | overall and weekly summaries, overtime calculations |
-| `DataManager` | `data-manager.ts` | CSV read/write for all entry types |
-| `VacationManager` | `vacation-manager.ts` | vacation tracking (working days) |
-| `SickManager` | `sick-manager.ts` | sick leave (calendar days) |
-| `HolidayManager` | `holiday-manager.ts` | public holidays via `date-holidays` npm |
-| `ConfigManager` | `config-manager.ts` | config at `~/.clockin/config.json` |
-| `SetupWizard` | `setup-wizard.ts` | interactive first-run setup |
-| `BaseLeaveManager` | `base-leave-manager.ts` | shared overlap detection for Vacation/Sick |
+| Manager            | File                    | Responsibility                                                     |
+| ------------------ | ----------------------- | ------------------------------------------------------------------ |
+| `TimeTracker`      | `time-tracker.ts`       | start/pause/resume/stop sessions, manual entry, live timer display |
+| `SummaryManager`   | `summary-manager.ts`    | overall and weekly summaries, overtime calculations                |
+| `DataManager`      | `data-manager.ts`       | CSV read/write for all entry types                                 |
+| `VacationManager`  | `vacation-manager.ts`   | vacation tracking (working days)                                   |
+| `SickManager`      | `sick-manager.ts`       | sick leave (calendar days)                                         |
+| `HolidayManager`   | `holiday-manager.ts`    | public holidays via `date-holidays` npm                            |
+| `ConfigManager`    | `config-manager.ts`     | config at `~/.clockin/config.json`                                 |
+| `SetupWizard`      | `setup-wizard.ts`       | interactive first-run setup                                        |
+| `BaseLeaveManager` | `base-leave-manager.ts` | shared overlap detection for Vacation/Sick                         |
 
 ### Data Storage
 

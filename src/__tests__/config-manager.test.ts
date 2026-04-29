@@ -14,7 +14,9 @@ describe('ConfigManager', () => {
     // Clean up before each test to ensure isolation
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      console.error('[config-manager.test] Failed pre-test cleanup:', error);
+    }
 
     // Instantiate ConfigManager (will use env-based global config path implicitly)
     configManager = new ConfigManager();
@@ -24,7 +26,9 @@ describe('ConfigManager', () => {
     // Clean up created test directories
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      console.error('[config-manager.test] Failed post-test cleanup:', error);
+    }
   });
 
   it('should create default config', () => {
