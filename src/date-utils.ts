@@ -78,6 +78,20 @@ export function calculateWorkingTime(
   return Number.isFinite(workingMs) && workingMs > 0 ? workingMs : 0;
 }
 
+export function countWorkingDaysInRange(
+  start: Dayjs,
+  end: Dayjs,
+  workingDayNames: Set<string>
+): number {
+  let count = 0;
+  let cursor = start;
+  while (cursor.isSameOrBefore(end, 'day')) {
+    if (workingDayNames.has(cursor.format('dddd').toLowerCase())) count++;
+    cursor = cursor.add(1, 'day');
+  }
+  return count;
+}
+
 export function isDateInWeekRange(weekStart: Dayjs, weekEnd: Dayjs, date: Dayjs) {
   return (
     date.isSame(weekStart, 'day') ||

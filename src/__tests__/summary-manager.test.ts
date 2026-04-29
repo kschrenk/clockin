@@ -466,7 +466,6 @@ describe('SummaryManager (JSON weekly summary)', () => {
 });
 
 describe('SummaryManager calculateSummaryData', () => {
-  let summaryManager: SummaryManager;
   let testGlobalConfigDir: string;
 
   beforeEach(async () => {
@@ -478,26 +477,6 @@ describe('SummaryManager calculateSummaryData', () => {
     try {
       await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
     } catch {}
-
-    const testConfig: Config = {
-      name: 'Test User',
-      hoursPerWeek: 40,
-      vacationDaysPerYear: 25,
-      workingDays: [
-        { day: 'monday', isWorkingDay: true },
-        { day: 'tuesday', isWorkingDay: true },
-        { day: 'wednesday', isWorkingDay: true },
-        { day: 'thursday', isWorkingDay: true },
-        { day: 'friday', isWorkingDay: true },
-        { day: 'saturday', isWorkingDay: false },
-        { day: 'sunday', isWorkingDay: false },
-      ],
-      dataDirectory: testGlobalConfigDir,
-      setupCompleted: true,
-      timezone: 'Europe/Berlin',
-    };
-
-    summaryManager = new SummaryManager(testConfig);
   });
 
   afterEach(async () => {
@@ -538,6 +517,100 @@ describe('SummaryManager calculateSummaryData', () => {
     // 1ms is ~2.78e-7 hours and should round to 0.0h without a sign.
     expect((testSummaryManager as any).formatHours(1)).toBe('0.0h');
     expect((testSummaryManager as any).formatHours(-1)).toBe('0.0h');
+  });
+
+  it('sick period spanning weekend counts only working days toward hours', async () => {
+    vi.setSystemTime(new Date('2025-11-16T23:59:59.999Z'));
+
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    const testSummaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadHolidayEntries').mockResolvedValue([]);
+
+    // Sick Mon–Sun: 7 calendar days, but only 5 are working days (Mon–Fri)
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([
+      {
+        id: 's1',
+        startDate: '2025-11-10', // Monday
+        endDate: '2025-11-16', // Sunday
+        days: 7,
+        description: 'Flu',
+      },
+    ]);
+
+    const summaryData = await (testSummaryManager as any).calculateSummaryData();
+
+    // Display value stays as calendar days
+    expect(summaryData.totalSickDays).toBe(7);
+
+    // Hours: only 5 working days × 8h = 40h (not 7 × 8h = 56h)
+    expect(summaryData.totalHoursWorked).toBe(5 * 8 * 3_600_000);
+  });
+
+  it('sick period on weekdays only counts all days toward hours', async () => {
+    vi.setSystemTime(new Date('2025-11-14T23:59:59.999Z'));
+
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    const testSummaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadHolidayEntries').mockResolvedValue([]);
+
+    // Sick Mon–Wed: 3 calendar days, all working days
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([
+      {
+        id: 's1',
+        startDate: '2025-11-10', // Monday
+        endDate: '2025-11-12', // Wednesday
+        days: 3,
+        description: 'Cold',
+      },
+    ]);
+
+    const summaryData = await (testSummaryManager as any).calculateSummaryData();
+
+    expect(summaryData.totalSickDays).toBe(3);
+    // 3 working days × 8h = 24h
+    expect(summaryData.totalHoursWorked).toBe(3 * 8 * 3_600_000);
   });
 
   it('does not double-count holidays that overlap with vacation or sick leave', async () => {

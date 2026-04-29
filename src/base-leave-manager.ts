@@ -1,7 +1,7 @@
 import dayjs, { type Dayjs } from 'dayjs';
 import chalk from 'chalk';
 import { addDays } from './date-utils.js';
-import { Config, VacationEntry, SickEntry } from './types.js';
+import { Config, VacationEntry, SickEntry, ParentalLeaveEntry } from './types.js';
 import { DataManager } from './data-manager.js';
 
 export abstract class BaseLeaveManager {
@@ -48,7 +48,7 @@ export abstract class BaseLeaveManager {
 
   protected findOverlappingDates(
     targetDates: Dayjs[],
-    existingEntries: (VacationEntry | SickEntry)[]
+    existingEntries: (VacationEntry | SickEntry | ParentalLeaveEntry)[]
   ): Dayjs[] {
     const overlapping: Dayjs[] = [];
 
@@ -91,18 +91,25 @@ export abstract class BaseLeaveManager {
   protected async checkAndReportLeaveOverlap(
     workingDayDates: Dayjs[],
     operationName: string,
-    checkAgainst: 'vacation' | 'sick'
+    checkAgainst: 'vacation' | 'sick' | 'parental'
   ): Promise<boolean> {
     const existingEntries =
       checkAgainst === 'vacation'
         ? await this.dataManager.loadVacationEntries()
-        : await this.dataManager.loadSickEntries();
+        : checkAgainst === 'sick'
+          ? await this.dataManager.loadSickEntries()
+          : await this.dataManager.loadParentalLeaveEntries();
 
     const overlappingDates = this.findOverlappingDates(workingDayDates, existingEntries);
 
     if (overlappingDates.length > 0) {
       const dateStrings = overlappingDates.map((date) => dayjs(date).format('MMM Do')).join(', ');
-      const conflictType = checkAgainst === 'vacation' ? 'vacation' : 'sick days';
+      const conflictType =
+        checkAgainst === 'vacation'
+          ? 'vacation'
+          : checkAgainst === 'sick'
+            ? 'sick days'
+            : 'parental leave';
       console.log(
         chalk.red(
           `\u274c Cannot add ${operationName}: ${conflictType} already scheduled for ${dateStrings}. Please remove ${conflictType} first or choose different dates.`

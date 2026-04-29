@@ -8,7 +8,7 @@ module.exports = {
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',
-    project: './tsconfig.json',
+    project: './tsconfig.eslint.json',
     tsconfigRootDir: __dirname,
   },
   plugins: ['@typescript-eslint', 'prettier'],
@@ -18,6 +18,14 @@ module.exports = {
     'plugin:prettier/recommended',
   ],
   ignorePatterns: ['dist/', 'node_modules/', 'coverage/', '*.d.ts'],
+  overrides: [
+    {
+      files: ['**/*.test.ts'],
+      rules: {
+        'no-empty': ['error', { allowEmptyCatch: true }],
+      },
+    },
+  ],
   rules: {
     '@typescript-eslint/no-unused-vars': [
       'warn',

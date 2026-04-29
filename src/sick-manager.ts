@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import dayjs, { type Dayjs } from 'dayjs';
+import Table from 'cli-table3';
 import { FORMAT_DATE, FORMAT_DATE_DAY, FORMAT_DATE_DAY_YEAR } from './date-utils.js';
 import { Config, SickEntry } from './types.js';
 import { BaseLeaveManager } from './base-leave-manager.js';
@@ -103,6 +104,46 @@ export class SickManager extends BaseLeaveManager {
     if (description) {
       console.log(chalk.cyan(`Reason: ${description}`));
     }
+  }
+
+  async listSickDays(year?: number): Promise<void> {
+    const targetYear = year ?? dayjs().year();
+    const allEntries = await this.dataManager.loadSickEntries();
+
+    const entries = allEntries.filter((e) => dayjs(e.startDate).year() === targetYear);
+
+    console.log(chalk.blue.bold(`\n🤒  Sick Days Overview ${targetYear}\n`));
+
+    if (entries.length === 0) {
+      console.log(chalk.yellow(`No sick day entries found for ${targetYear}.`));
+    } else {
+      const table = new Table({
+        head: [
+          chalk.cyan('#'),
+          chalk.cyan('Date Range'),
+          chalk.cyan('Days'),
+          chalk.cyan('Description'),
+        ],
+        colWidths: [4, 30, 6, 35],
+      });
+
+      entries.forEach((entry, i) => {
+        const start = dayjs(entry.startDate);
+        const end = dayjs(entry.endDate);
+        const dateRange =
+          entry.startDate === entry.endDate
+            ? start.format(FORMAT_DATE_DAY_YEAR)
+            : `${start.format(FORMAT_DATE_DAY)} – ${end.format(FORMAT_DATE_DAY_YEAR)}`;
+
+        table.push([String(i + 1), dateRange, String(entry.days), entry.description ?? '']);
+      });
+
+      console.log(table.toString());
+    }
+
+    const usedDays = entries.reduce((sum, e) => sum + e.days, 0);
+    console.log(chalk.cyan(`Total sick days ${targetYear}: `) + chalk.white(`${usedDays} days`));
+    console.log();
   }
 
   async getTotalSickDays(): Promise<number> {

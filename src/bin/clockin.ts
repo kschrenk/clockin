@@ -11,11 +11,25 @@ import { SetupWizard } from '../setup-wizard.js';
 import { TimeTracker } from '../time-tracker.js';
 import { VacationManager } from '../vacation-manager.js';
 import { SickManager } from '../sick-manager.js';
+import { ParentalLeaveManager } from '../parental-leave-manager.js';
 import { SummaryManager } from '../summary-manager.js';
 import { HolidayManager } from '../holiday-manager.js';
 import { dayjs } from '../date-utils.js';
 
 const program = new Command();
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** When the user omits description and passes a date as the second arg, remap it. */
+function resolveDescriptionAndDate(
+  description?: string,
+  startDate?: string
+): { description: string | undefined; startDate: string | undefined } {
+  if (startDate === undefined && description !== undefined && ISO_DATE_RE.test(description)) {
+    return { description: undefined, startDate: description };
+  }
+  return { description, startDate };
+}
 
 async function ensureSetup() {
   const configManager = new ConfigManager();
@@ -93,6 +107,7 @@ program
   .option('-w, --week', 'Show weekly summary')
   .option('-c, --csv', 'Open CSV file with time data')
   .option('-j, --json', 'Output weekly summary as JSON (use with --week)')
+  .option('-l, --leaves', 'Show unified leave summary (vacation, sick, parental)')
   .option('-y, --year <year>', 'Show summary for a specific year (defaults to current year)')
   .action(async (options) => {
     try {
@@ -108,6 +123,13 @@ program
         } else {
           await summaryManager.showWeeklySummary();
         }
+      } else if (options.leaves) {
+        const year = options.year ? parseInt(options.year, 10) : undefined;
+        if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
+          console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
+          return;
+        }
+        await summaryManager.showLeaveSummary({ year });
       } else {
         const year = options.year ? parseInt(options.year, 10) : undefined;
         if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
@@ -198,7 +220,7 @@ Examples:
   clockin sick add 3 "Food poisoning" 2025-01-15  # Add 3 sick days starting Jan 15th
   clockin sick add 1 "" 2025-12-10            # Add 1 sick day on specific date (no description)`
   )
-  .action(async (days: string, description?: string, startDate?: string) => {
+  .action(async (days: string, rawDescription?: string, rawStartDate?: string) => {
     try {
       const config = await ensureSetup();
       const sickManager = new SickManager(config);
@@ -209,9 +231,83 @@ Examples:
         return;
       }
 
+      const { description, startDate } = resolveDescriptionAndDate(rawDescription, rawStartDate);
       await sickManager.addSickDays(numDays, description, startDate);
     } catch (error) {
       console.log(chalk.red('❌ Error adding sick days:'), error);
+    }
+  });
+
+sickCommand
+  .command('list')
+  .description('List sick day entries for a given year (defaults to current year)')
+  .option('-y, --year <year>', 'Year to list sick days for')
+  .action(async (options: { year?: string }) => {
+    try {
+      const config = await ensureSetup();
+      const sickManager = new SickManager(config);
+      const year = options.year ? parseInt(options.year, 10) : undefined;
+
+      if (year !== undefined && isNaN(year)) {
+        console.log(chalk.red('❌ Invalid year. Please enter a valid year (e.g. 2025).'));
+        return;
+      }
+
+      await sickManager.listSickDays(year);
+    } catch (error) {
+      console.log(chalk.red('❌ Error listing sick days:'), error);
+    }
+  });
+
+const parentalCommand = program.command('parental').description('Manage parental leave days');
+
+parentalCommand
+  .command('add <days> [description] [start_date]')
+  .description('Add parental leave days (consecutive calendar days, defaults to today)')
+  .addHelpText(
+    'after',
+    `
+Examples:
+  clockin parental add 30                          # Add 30 parental leave days starting today
+  clockin parental add 60 "Maternity leave"        # Add 60 days with note
+  clockin parental add 14 "Paternity" 2025-06-01  # Add 14 days starting June 1st`
+  )
+  .action(async (days: string, rawDescription?: string, rawStartDate?: string) => {
+    try {
+      const config = await ensureSetup();
+      const manager = new ParentalLeaveManager(config);
+      const numDays = parseFloat(days);
+
+      if (isNaN(numDays) || numDays <= 0) {
+        console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
+        return;
+      }
+
+      const { description, startDate } = resolveDescriptionAndDate(rawDescription, rawStartDate);
+      await manager.addParentalLeave(numDays, description, startDate);
+    } catch (error) {
+      console.log(chalk.red('❌ Error adding parental leave:'), error);
+    }
+  });
+
+parentalCommand
+  .command('list')
+  .description('List parental leave entries for a given year (defaults to current year)')
+  .option('-y, --year <year>', 'Year to list parental leave for')
+  .action(async (options: { year?: string }) => {
+    try {
+      const config = await ensureSetup();
+      const manager = new ParentalLeaveManager(config);
+      const year = options.year ? parseInt(options.year, 10) : undefined;
+
+      if (year !== undefined && isNaN(year)) {
+        console.log(chalk.red('❌ Invalid year. Please enter a valid year (e.g. 2025).'));
+        return;
+      }
+
+      await manager.listParentalLeave(year);
+    } catch (error) {
+      console.log(chalk.red('❌ Error listing parental leave:'), error);
     }
   });
 
