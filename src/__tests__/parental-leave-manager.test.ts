@@ -125,6 +125,64 @@ describe('ParentalLeaveManager', () => {
     expect(entries).toHaveLength(0);
   });
 
+  it('adds parental leave via date range (calendar days incl. weekend)', async () => {
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    const saveSpy = vi
+      .spyOn(DataManager.prototype, 'saveParentalLeaveEntry')
+      .mockResolvedValue(undefined);
+
+    const manager = new ParentalLeaveManager(makeConfig());
+    await manager.addParentalLeaveRange('2025-06-02', '2025-06-08', 'Paternity');
+
+    expect(saveSpy).toHaveBeenCalledOnce();
+    const saved = saveSpy.mock.calls[0][0];
+    expect(saved.startDate).toBe('2025-06-02');
+    expect(saved.endDate).toBe('2025-06-08');
+    expect(saved.days).toBe(7);
+    expect(saved.description).toBe('Paternity');
+  });
+
+  it('range with same start and end yields 1 day', async () => {
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    const saveSpy = vi
+      .spyOn(DataManager.prototype, 'saveParentalLeaveEntry')
+      .mockResolvedValue(undefined);
+
+    const manager = new ParentalLeaveManager(makeConfig());
+    await manager.addParentalLeaveRange('2025-06-02', '2025-06-02');
+
+    expect(saveSpy).toHaveBeenCalledOnce();
+    expect(saveSpy.mock.calls[0][0].days).toBe(1);
+  });
+
+  it('range rejects end before start', async () => {
+    const saveSpy = vi
+      .spyOn(DataManager.prototype, 'saveParentalLeaveEntry')
+      .mockResolvedValue(undefined);
+
+    const manager = new ParentalLeaveManager(makeConfig());
+    await manager.addParentalLeaveRange('2025-06-10', '2025-06-01');
+
+    expect(saveSpy).not.toHaveBeenCalled();
+  });
+
+  it('range rejects invalid date strings', async () => {
+    const saveSpy = vi
+      .spyOn(DataManager.prototype, 'saveParentalLeaveEntry')
+      .mockResolvedValue(undefined);
+
+    const manager = new ParentalLeaveManager(makeConfig());
+    await manager.addParentalLeaveRange('not-a-date', '2025-06-02');
+
+    expect(saveSpy).not.toHaveBeenCalled();
+  });
+
   it('prevents overlap with sick leave', async () => {
     vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([
       { id: 's1', startDate: '2025-06-03', endDate: '2025-06-03', days: 1, description: 'Flu' },

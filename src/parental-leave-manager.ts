@@ -74,6 +74,27 @@ export class ParentalLeaveManager extends BaseLeaveManager {
     if (description) console.log(chalk.cyan(`Note: ${description}`));
   }
 
+  async addParentalLeaveRange(
+    startDate: string,
+    endDate: string,
+    description?: string
+  ): Promise<void> {
+    const start = dayjs(startDate);
+    const end = dayjs(endDate);
+
+    if (!start.isValid() || !end.isValid()) {
+      console.log(chalk.red('❌ Invalid date. Use YYYY-MM-DD format.'));
+      return;
+    }
+    if (end.isBefore(start, 'day')) {
+      console.log(chalk.red('❌ End date must be on or after start date.'));
+      return;
+    }
+
+    const days = end.startOf('day').diff(start.startOf('day'), 'day') + 1;
+    await this.addParentalLeave(days, description, start.format(FORMAT_DATE));
+  }
+
   async listParentalLeave(year?: number): Promise<void> {
     const targetYear = year ?? dayjs().year();
     const allEntries = await this.dataManager.loadParentalLeaveEntries();

@@ -291,6 +291,19 @@ Examples:
   });
 
 parentalCommand
+  .command('range <start_date> <end_date> [description]')
+  .description('Add parental leave for a date range (YYYY-MM-DD format, calendar days)')
+  .action(async (startDate: string, endDate: string, description?: string) => {
+    try {
+      const config = await ensureSetup();
+      const manager = new ParentalLeaveManager(config);
+      await manager.addParentalLeaveRange(startDate, endDate, description);
+    } catch (error) {
+      console.log(chalk.red('❌ Error adding parental leave range:'), error);
+    }
+  });
+
+parentalCommand
   .command('list')
   .description('List parental leave entries for a given year (defaults to current year)')
   .option('-y, --year <year>', 'Year to list parental leave for')
