@@ -106,6 +106,54 @@ describe('SummaryManager (JSON weekly summary)', () => {
     expect(result.undertime).toBe(true);
   });
 
+  it('includes location per work day and omits it for vacation days', async () => {
+    const locationEntries: TimeEntry[] = [
+      {
+        id: '1',
+        date: '2025-11-10',
+        startTime: '2025-11-10T09:00:00.000Z',
+        endTime: '2025-11-10T17:00:00.000Z',
+        pauseTime: 60,
+        type: 'work',
+        description: 'Development work',
+        location: 'home',
+      },
+      {
+        id: '2',
+        date: '2025-11-11',
+        startTime: '2025-11-11T09:00:00.000Z',
+        endTime: '2025-11-11T17:00:00.000Z',
+        pauseTime: 60,
+        type: 'work',
+        description: 'Development work',
+        location: 'office',
+      },
+    ];
+
+    const vacationEntry: VacationEntry = {
+      id: 'v1',
+      startDate: '2025-11-12',
+      endDate: '2025-11-12',
+      days: 1,
+      description: 'Vacation',
+    };
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue(locationEntries);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([vacationEntry]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+    })) as WeeklySummaryResult;
+
+    const monday = result.rows.find((r) => r.date === '2025-11-10');
+    const tuesday = result.rows.find((r) => r.date === '2025-11-11');
+    const vacationRow = result.rows.find((r) => r.entryType === 'vacation');
+
+    expect(monday!.location).toBe('home');
+    expect(tuesday!.location).toBe('office');
+    expect(vacationRow!.location).toBeUndefined();
+  });
+
   it('includes vacation day and aggregates hours correctly', async () => {
     const vacationEntry: VacationEntry = {
       id: 'v1',
@@ -658,5 +706,89 @@ describe('SummaryManager calculateSummaryData', () => {
     // With 40h/week and 5 working days => 8h per day.
     // We expect exactly 1 vacation day worth of hours. Holiday should NOT add another 8h.
     expect(summaryData.totalHoursWorked).toBe(8 * 3_600_000);
+  });
+
+  it('counts office and home office days by distinct day, defaulting legacy entries to office', async () => {
+    vi.setSystemTime(new Date('2025-11-14T23:59:59.999Z'));
+
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    const testSummaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([
+      // Monday: office
+      {
+        id: '1',
+        date: '2025-11-10',
+        startTime: '2025-11-10T09:00:00.000Z',
+        endTime: '2025-11-10T17:00:00.000Z',
+        pauseTime: 60,
+        type: 'work',
+        location: 'office',
+      },
+      // Tuesday: home office
+      {
+        id: '2',
+        date: '2025-11-11',
+        startTime: '2025-11-11T09:00:00.000Z',
+        endTime: '2025-11-11T17:00:00.000Z',
+        pauseTime: 60,
+        type: 'work',
+        location: 'home',
+      },
+      // Wednesday: two entries same day, same location -> counts once
+      {
+        id: '3',
+        date: '2025-11-12',
+        startTime: '2025-11-12T09:00:00.000Z',
+        endTime: '2025-11-12T12:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+        location: 'home',
+      },
+      {
+        id: '4',
+        date: '2025-11-12',
+        startTime: '2025-11-12T13:00:00.000Z',
+        endTime: '2025-11-12T17:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+        location: 'home',
+      },
+      // Thursday: no location set (legacy entry) -> defaults to office
+      {
+        id: '5',
+        date: '2025-11-13',
+        startTime: '2025-11-13T09:00:00.000Z',
+        endTime: '2025-11-13T17:00:00.000Z',
+        pauseTime: 60,
+        type: 'work',
+      },
+    ]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadHolidayEntries').mockResolvedValue([]);
+
+    const summaryData = await (testSummaryManager as any).calculateSummaryData();
+
+    expect(summaryData.officeDays).toBe(2); // Monday + Thursday (legacy)
+    expect(summaryData.homeOfficeDays).toBe(2); // Tuesday + Wednesday
   });
 });

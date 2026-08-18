@@ -149,6 +149,7 @@ export class SetupWizard {
     const timezone = await this.collectTimezone();
     const workingDays = await this.collectWorkingDays();
     const dataDirectory = await this.collectDataDirectory();
+    const defaultWorkLocation = await this.collectDefaultWorkLocation();
 
     return {
       name: answers.name,
@@ -159,7 +160,25 @@ export class SetupWizard {
       workingDays,
       setupCompleted: false,
       dataDirectory,
+      defaultWorkLocation,
     };
+  }
+
+  private async collectDefaultWorkLocation(): Promise<'office' | 'home'> {
+    const { defaultWorkLocation } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'defaultWorkLocation',
+        message: 'Default work location for `clockin start` (can be overridden per session):',
+        choices: [
+          { name: 'Office', value: 'office' },
+          { name: 'Home office', value: 'home' },
+        ],
+        default: 'office',
+      },
+    ]);
+
+    return defaultWorkLocation;
   }
 
   private async collectTimezone(): Promise<string> {
@@ -267,5 +286,8 @@ export class SetupWizard {
       .join(', ');
     console.log(`${chalk.cyan('Working days:')} ${workingDayNames}`);
     console.log(`${chalk.cyan('Data directory:')} ${config.dataDirectory}`);
+    console.log(
+      `${chalk.cyan('Default work location:')} ${config.defaultWorkLocation === 'home' ? 'Home office' : 'Office'}`
+    );
   }
 }

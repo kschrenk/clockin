@@ -27,7 +27,7 @@ export class TimeTracker {
     this.sessionPath = path.join(config.dataDirectory, 'current-session.json');
   }
 
-  async startTracking(): Promise<void> {
+  async startTracking(location: 'office' | 'home' = 'office'): Promise<void> {
     const existingSession = await this.getCurrentSession();
     if (existingSession) {
       console.log(chalk.yellow('\u26a0\ufe0f  A tracking session is already active!'));
@@ -86,6 +86,7 @@ export class TimeTracker {
       startTime: dayjs().toISOString(),
       pausedTime: 0,
       isPaused: false,
+      location,
     };
 
     await this.saveCurrentSession(session);
@@ -176,7 +177,9 @@ export class TimeTracker {
       );
       const endTime = dayjs(expectedEndTimeDate).tz(this.config.timezone).format(FORMAT_TIME);
 
-      console.log(chalk.blue.bold(`📅 ${now.format('dddd, MMMM Do, YYYY')}`));
+      const locationLabel = session.location === 'home' ? '🏠 Home' : '🏢 Office';
+
+      console.log(chalk.blue.bold(`📅 ${now.format('dddd, MMMM Do, YYYY')} | ${locationLabel}`));
       console.log(
         chalk.green(
           `🕐 Started: ${startTimeFormatted} | ⏱️  Session: ${elapsedTime.format(FORMAT_TIME)} | 📊 Today's Total: ${dayjs.duration(todaysTotalMs).format(FORMAT_TIME)}`
@@ -264,6 +267,31 @@ export class TimeTracker {
 
       if (applyPause) {
         pauseTime = suggestedPauseMinutes;
+      } else {
+        const { addCustomPause } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'addCustomPause',
+            message: 'Add a custom pause instead?',
+            default: false,
+          },
+        ]);
+
+        if (addCustomPause) {
+          const { customPauseMinutes } = await inquirer.prompt([
+            {
+              type: 'number',
+              name: 'customPauseMinutes',
+              message: 'Enter pause time in minutes:',
+              default: 0,
+              validate: (input: number) =>
+                (Number.isFinite(input) && input >= 0 && input <= grossMinutes) ||
+                `Please enter a number between 0 and ${Math.floor(grossMinutes)}.`,
+            },
+          ]);
+
+          pauseTime = customPauseMinutes;
+        }
       }
     }
 
@@ -274,6 +302,7 @@ export class TimeTracker {
       endTime: endTime.toISOString(),
       pauseTime,
       type: 'work',
+      location: session.location ?? 'office',
     };
 
     await this.dataManager.saveTimeEntry(timeEntry);
@@ -295,7 +324,8 @@ export class TimeTracker {
     startTimeString: string,
     endTimeString: string,
     description?: string,
-    pauseTimeMinutes: number = 0
+    pauseTimeMinutes: number = 0,
+    location: 'office' | 'home' = 'office'
   ): Promise<void> {
     // Validate date format
     if (!isValidDateString(dateString)) {
@@ -422,6 +452,7 @@ export class TimeTracker {
       pauseTime: pauseTimeMinutes,
       type: 'work',
       description,
+      location,
     };
 
     // Save the entry

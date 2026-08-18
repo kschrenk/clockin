@@ -39,6 +39,7 @@ export interface WeeklySummaryRow {
   hoursMs: number;
   hoursFormatted: string;
   entryType: string; // work | vacation | other
+  location?: 'office' | 'home';
   timeEntries?: TimeEntry[];
   isVacation?: boolean;
 }
@@ -98,7 +99,9 @@ export class SummaryManager {
       [`Vacation Days Used (${targetYear})`, `${summaryData.totalVacationDays}`],
       ['Vacation Days Remaining (+ carryover)', `${summaryData.remainingVacationDays}`],
       [`Sick Days Used (${targetYear})`, `${summaryData.totalSickDays}`],
-      [`Parental Leave Days Used (${targetYear})`, `${summaryData.totalParentalLeaveDays}`]
+      [`Parental Leave Days Used (${targetYear})`, `${summaryData.totalParentalLeaveDays}`],
+      [`Office Days (${targetYear})`, `${summaryData.officeDays}`],
+      [`Home Office Days (${targetYear})`, `${summaryData.homeOfficeDays}`]
     );
 
     console.log(table.toString());
@@ -257,6 +260,7 @@ export class SummaryManager {
             hoursMs: dailyTotalMs,
             hoursFormatted: dayjs.duration(dailyTotalMs).format('HH:mm'),
             entryType: firstEntry ? firstEntry.type : 'work',
+            location: firstEntry?.location ?? 'office',
             timeEntries: dayTimeEntries,
             isVacation: isVacationDay || false,
           });
@@ -309,9 +313,10 @@ export class SummaryManager {
         chalk.cyan('End'),
         chalk.cyan('Break'),
         chalk.cyan('Hours'),
+        chalk.cyan('Location'),
         chalk.cyan('Type'),
       ],
-      colWidths: [15, 10, 10, 10, 10, 15],
+      colWidths: [15, 10, 10, 10, 10, 10, 15],
     });
 
     rows.forEach((r) => {
@@ -321,6 +326,7 @@ export class SummaryManager {
         r.end || '-',
         r.breakMinutes !== null ? `${r.breakMinutes}m` : '-',
         r.hoursFormatted,
+        r.location ? (r.location === 'office' ? 'Office' : 'Home') : '-',
         r.entryType,
       ]);
     });
@@ -536,6 +542,7 @@ export class SummaryManager {
           { id: 'endTime', title: 'End Time' },
           { id: 'pauseTime', title: 'Pause Time (minutes)' },
           { id: 'type', title: 'Type' },
+          { id: 'location', title: 'Location' },
           { id: 'description', title: 'Description' },
         ],
       });
@@ -601,6 +608,17 @@ export class SummaryManager {
     const totalVacationDays = yearVacationEntries.reduce((sum, e) => sum + e.days, 0);
     const totalSickDays = yearSickEntries.reduce((sum, e) => sum + e.days, 0);
     const totalParentalLeaveDays = yearParentalLeaveEntries.reduce((sum, e) => sum + e.days, 0);
+
+    // Group completed work entries by day so a day with multiple entries only counts once.
+    const yearWorkDayLocations = new Map<string, 'office' | 'home'>();
+    for (const entry of yearTimeEntries) {
+      if (entry.type !== 'work' || !entry.endTime) continue;
+      if (!yearWorkDayLocations.has(entry.date)) {
+        yearWorkDayLocations.set(entry.date, entry.location ?? 'office');
+      }
+    }
+    const officeDays = [...yearWorkDayLocations.values()].filter((l) => l === 'office').length;
+    const homeOfficeDays = [...yearWorkDayLocations.values()].filter((l) => l === 'home').length;
 
     // Calendar-day entries (sick, parental): only working days contribute hours.
     const yearSickWorkingDays = yearSickEntries.reduce(
@@ -720,6 +738,8 @@ export class SummaryManager {
       totalVacationDays,
       totalSickDays,
       totalParentalLeaveDays,
+      officeDays,
+      homeOfficeDays,
       remainingVacationDays,
       expectedHoursPerWeek: this.config.hoursPerWeek,
       currentWeekHours,

@@ -64,6 +64,7 @@ export class ConfigManager {
       dataDirectory: this.dataDirectory,
       timezone: 'Europe/Berlin',
       setupCompleted: false,
+      defaultWorkLocation: 'office',
     };
   }
 

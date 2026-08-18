@@ -7,6 +7,7 @@ export interface Config {
   timezone: string;
   setupCompleted: boolean;
   startDate?: string; // ISO date string - first day of work for accurate overtime calculations
+  defaultWorkLocation?: 'office' | 'home';
 }
 
 export interface WorkingDay {
@@ -22,6 +23,7 @@ export interface TimeEntry {
   pauseTime?: number; // minutes paused
   type: 'work' | 'vacation';
   description?: string;
+  location?: 'office' | 'home';
 }
 
 export interface VacationEntry {
@@ -61,6 +63,7 @@ export interface WorkSession {
   pausedTime: number; // total paused time in milliseconds
   isPaused: boolean;
   pauseStartTime?: string; // ISO datetime string
+  location?: 'office' | 'home';
 }
 
 export interface SummaryData {
@@ -68,6 +71,8 @@ export interface SummaryData {
   totalVacationDays: number;
   totalSickDays: number;
   totalParentalLeaveDays: number;
+  officeDays: number;
+  homeOfficeDays: number;
   remainingVacationDays: number;
   expectedHoursPerWeek: number;
   currentWeekHours: number;

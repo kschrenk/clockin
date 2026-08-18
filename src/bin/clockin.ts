@@ -52,11 +52,54 @@ program
 program
   .command('start')
   .description('Start tracking time')
-  .action(async () => {
+  .option('--home', 'Track this session as home office')
+  .option('--office', 'Track this session as office')
+  .action(async (options: { home?: boolean; office?: boolean }) => {
     try {
+      if (options.home && options.office) {
+        console.log(chalk.red('❌ Cannot use --home and --office together.'));
+        return;
+      }
+
       const config = await ensureSetup();
+
+      let location: 'office' | 'home';
+      if (options.home) {
+        location = 'home';
+      } else if (options.office) {
+        location = 'office';
+      } else if (config.defaultWorkLocation) {
+        location = config.defaultWorkLocation;
+      } else {
+        const inquirer = (await import('inquirer')).default;
+        const { chosenLocation, saveAsDefault } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'chosenLocation',
+            message: 'Where are you working today?',
+            choices: [
+              { name: 'Office', value: 'office' },
+              { name: 'Home office', value: 'home' },
+            ],
+          },
+          {
+            type: 'confirm',
+            name: 'saveAsDefault',
+            message: 'Save as your default work location?',
+            default: true,
+          },
+        ]);
+
+        location = chosenLocation;
+
+        if (saveAsDefault) {
+          const configManager = new ConfigManager();
+          await configManager.saveConfig({ ...config, defaultWorkLocation: chosenLocation });
+        }
+      }
+
       const timeTracker = new TimeTracker(config);
-      await timeTracker.startTracking();
+      await timeTracker.startTracking(location);
     } catch (error) {
       console.log(chalk.red('❌ Error starting time tracking:'), error);
     }
@@ -396,6 +439,8 @@ program
   .command('add <date> <start_time> <end_time> [description]')
   .description('Add a time entry manually (YYYY-MM-DD HH:MM HH:MM format)')
   .option('-p, --pause <minutes>', 'Pause time in minutes', '0')
+  .option('--home', 'Mark this entry as home office')
+  .option('--office', 'Mark this entry as office')
   .addHelpText(
     'after',
     `
@@ -404,6 +449,7 @@ Examples:
   clockin add 2025-01-14 09:00 17:30 "Project work"     # Add with description
   clockin add 2025-01-14 09:00 17:30 -p 30              # Add with 30 minutes pause
   clockin add 2025-01-14 09:00 17:30 "Meeting day" -p 45 # Add with description and pause
+  clockin add 2025-01-14 09:00 17:30 --home             # Add as home office
 `
   )
   .action(
@@ -412,9 +458,14 @@ Examples:
       startTime: string,
       endTime: string,
       description?: string,
-      options?: { pause?: string }
+      options?: { pause?: string; home?: boolean; office?: boolean }
     ) => {
       try {
+        if (options?.home && options?.office) {
+          console.log(chalk.red('❌ Cannot use --home and --office together.'));
+          return;
+        }
+
         const config = await ensureSetup();
         const timeTracker = new TimeTracker(config);
 
@@ -425,7 +476,20 @@ Examples:
           return;
         }
 
-        await timeTracker.addTimeEntry(date, startTime, endTime, description, pauseMinutes);
+        const location: 'office' | 'home' = options?.home
+          ? 'home'
+          : options?.office
+            ? 'office'
+            : config.defaultWorkLocation ?? 'office';
+
+        await timeTracker.addTimeEntry(
+          date,
+          startTime,
+          endTime,
+          description,
+          pauseMinutes,
+          location
+        );
       } catch (error) {
         console.log(chalk.red('❌ Error adding time entry:'), error);
       }

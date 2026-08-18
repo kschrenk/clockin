@@ -64,6 +64,7 @@ export class DataManager {
                   : undefined,
               type: (data.type || data.Type) as TimeEntry['type'],
               description: data.description || data.Description || undefined,
+              location: (data.location || data.Location || undefined) as TimeEntry['location'],
             };
             entries.push(entry);
           } catch (e) {
@@ -88,6 +89,7 @@ export class DataManager {
         { id: 'endTime', title: 'End Time' },
         { id: 'pauseTime', title: 'Pause Time (minutes)' },
         { id: 'type', title: 'Type' },
+        { id: 'location', title: 'Location' },
         { id: 'description', title: 'Description' },
       ],
       append: fileExists,
@@ -117,6 +119,7 @@ export class DataManager {
         { id: 'endTime', title: 'End Time' },
         { id: 'pauseTime', title: 'Pause Time (minutes)' },
         { id: 'type', title: 'Type' },
+        { id: 'location', title: 'Location' },
         { id: 'description', title: 'Description' },
       ],
       append: false,

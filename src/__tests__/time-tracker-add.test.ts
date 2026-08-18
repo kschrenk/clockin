@@ -293,6 +293,20 @@ describe('TimeTracker - Manual Time Entry', () => {
       expect(timeEntries).toHaveLength(2);
       expect(timeEntries.map((e) => e.date)).toEqual(['2025-01-14', '2025-01-15']);
     });
+
+    it('defaults to office when no location is given', async () => {
+      await timeTracker.addTimeEntry('2025-01-14', '09:00', '17:00');
+
+      const timeEntries = await dataManager.loadTimeEntries();
+      expect(timeEntries[0].location).toBe('office');
+    });
+
+    it('respects an explicit home location', async () => {
+      await timeTracker.addTimeEntry('2025-01-14', '09:00', '17:00', undefined, 0, 'home');
+
+      const timeEntries = await dataManager.loadTimeEntries();
+      expect(timeEntries[0].location).toBe('home');
+    });
   });
 
   describe('Edge Cases', () => {

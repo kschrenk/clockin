@@ -50,6 +50,10 @@ describe('SetupWizard', () => {
           return { useDefault: true };
         }
 
+        if (names.includes('defaultWorkLocation')) {
+          return { defaultWorkLocation: 'office' };
+        }
+
         if (names.includes('confirmed')) {
           return { confirmed: true };
         }
@@ -105,6 +109,10 @@ describe('SetupWizard', () => {
 
       if (names.includes('useDefault')) {
         return { useDefault: true };
+      }
+
+      if (names.includes('defaultWorkLocation')) {
+        return { defaultWorkLocation: 'office' };
       }
 
       if (names.includes('confirmed')) {
