@@ -712,8 +712,12 @@ export class SummaryManager {
     );
     allTimeHoursWorked += allTimeWorkingHolidays.length * workingHoursPerDayMs;
 
-    const elapsedWeeks = now.diff(employmentStartDate, 'week', true);
-    const expectedTotalHours = elapsedWeeks * this.config.hoursPerWeek;
+    // Expected hours accrue per working day (today included, like the weekly summary), not
+    // continuously over calendar time — otherwise overtime swings over nights and weekends.
+    const elapsedWorkingDays = now.isBefore(employmentStartDate, 'day')
+      ? 0
+      : countWorkingDaysInRange(employmentStartDate, now, workingDayNames);
+    const expectedTotalHours = elapsedWorkingDays * workingHoursPerDay;
     const overtimeHours = dayjs
       .duration(dayjs.duration(allTimeHoursWorked).asHours() - expectedTotalHours, 'hours')
       .asMilliseconds();

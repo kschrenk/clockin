@@ -298,8 +298,8 @@ describe('SummaryManager (JSON weekly summary)', () => {
   });
 
   it('calculates overtime correctly when hours exceed expected', async () => {
-    // Set system time to end of a complete week to make calculation simpler
-    vi.setSystemTime(new Date('2025-11-16T23:59:59.999Z')); // Sunday end of week
+    // Sunday of the test week (noon, so the date is Sunday in any timezone near UTC)
+    vi.setSystemTime(new Date('2025-11-16T12:00:00.000Z'));
 
     // Set a start date to make overtime calculation predictable
     const testConfig: Config = {
@@ -379,25 +379,17 @@ describe('SummaryManager (JSON weekly summary)', () => {
 
     const summaryData = await (testSummaryManager as any).calculateSummaryData();
 
-    // The system calculates based on fractional weeks from start date to now
-    // Monday 00:00 to Sunday 23:59:59.999 = ~0.976 weeks
-    // Expected: ~0.976 weeks * 40h/week = ~39.048h
-    // Worked: 45h
-    // Overtime: 45h - 39.048h = ~5.952h but dayjs rounds to ~4.76h
+    // Expected: 5 elapsed working days × 8h = 40h; worked 45h → +5h
     expect(summaryData.totalHoursWorked).toBe(45 * 3_600_000);
+    expect(summaryData.overtimeHours).toBe(5 * 3_600_000);
 
-    // Just verify the overtime is positive and close to what we expect
-    expect(summaryData.overtimeHours).toBeGreaterThan(4 * 3_600_000);
-    expect(summaryData.overtimeHours).toBeLessThan(6 * 3_600_000);
-
-    // Verify formatHours displays correctly
     const formattedOvertime = (testSummaryManager as any).formatHours(summaryData.overtimeHours);
-    expect(formattedOvertime).toBe('4.8h');
+    expect(formattedOvertime).toBe('5.0h');
   });
 
   it('calculates undertime correctly when hours are less than expected', async () => {
-    // Set system time to end of a complete week
-    vi.setSystemTime(new Date('2025-11-16T23:59:59.999Z')); // Sunday end of week
+    // Sunday of the test week (noon, so the date is Sunday in any timezone near UTC)
+    vi.setSystemTime(new Date('2025-11-16T12:00:00.000Z'));
 
     // Set a start date to make calculation predictable
     const testConfig: Config = {
@@ -450,24 +442,17 @@ describe('SummaryManager (JSON weekly summary)', () => {
 
     const summaryData = await (testSummaryManager as any).calculateSummaryData();
 
-    // The system calculates based on fractional weeks
-    // Expected: ~0.976 weeks * 40h/week = ~39.048h
-    // Worked: 14h
-    // Undertime: 14h - 39.048h = ~-25.048h but dayjs calculates ~-26.2h
+    // Expected: 5 elapsed working days × 8h = 40h; worked 14h → -26h
     expect(summaryData.totalHoursWorked).toBe(14 * 3_600_000);
+    expect(summaryData.overtimeHours).toBe(-26 * 3_600_000);
 
-    // Just verify the undertime is negative and in the expected range
-    expect(summaryData.overtimeHours).toBeLessThan(-25 * 3_600_000);
-    expect(summaryData.overtimeHours).toBeGreaterThan(-27 * 3_600_000);
-
-    // Verify formatHours displays negative correctly
     const formattedOvertime = (testSummaryManager as any).formatHours(summaryData.overtimeHours);
-    expect(formattedOvertime).toBe('-26.2h');
+    expect(formattedOvertime).toBe('-26.0h');
   });
 
   it('calculates overtime with vacation and sick days included', async () => {
-    // Set system time to end of a complete week
-    vi.setSystemTime(new Date('2025-11-16T23:59:59.999Z')); // Sunday end of week
+    // Sunday of the test week (noon, so the date is Sunday in any timezone near UTC)
+    vi.setSystemTime(new Date('2025-11-16T12:00:00.000Z'));
 
     const testConfig: Config = {
       name: 'Test User',
@@ -546,18 +531,12 @@ describe('SummaryManager (JSON weekly summary)', () => {
 
     const summaryData = await (testSummaryManager as any).calculateSummaryData();
 
-    // Total: 24h (work) + 8h (vacation) + 8h (sick) = 40h
-    // Expected: ~0.976 weeks * 40h/week = ~39.048h but dayjs calculates ~40.238h
-    // Overtime: 40h - 40.238h = ~-0.238h
+    // Total: 24h (work) + 8h (vacation) + 8h (sick) = 40h = exactly the 5 expected days
     expect(summaryData.totalHoursWorked).toBe(40 * 3_600_000);
-
-    // Verify overtime is close to zero (small negative due to fractional week)
-    expect(summaryData.overtimeHours).toBeLessThan(0);
-    expect(summaryData.overtimeHours).toBeGreaterThan(-1 * 3_600_000);
+    expect(summaryData.overtimeHours).toBe(0);
 
     const formattedOvertime = (testSummaryManager as any).formatHours(summaryData.overtimeHours);
-    // Shows -0.2h due to fractional week (40h - 40.238h expected)
-    expect(formattedOvertime).toBe('-0.2h');
+    expect(formattedOvertime).toBe('0.0h');
   });
 });
 
@@ -663,6 +642,53 @@ describe('SummaryManager calculateSummaryData', () => {
 
     // Hours: only 5 working days × 8h = 40h (not 7 × 8h = 56h)
     expect(summaryData.totalHoursWorked).toBe(5 * 8 * 3_600_000);
+  });
+
+  it('overtime stays stable across the weekend when the weekly target was met', async () => {
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    const eightHourDays: TimeEntry[] = ['10', '11', '12', '13', '14'].map((d) => ({
+      id: d,
+      date: `2025-11-${d}`,
+      startTime: `2025-11-${d}T08:00:00.000Z`,
+      endTime: `2025-11-${d}T16:00:00.000Z`,
+      pauseTime: 0,
+      type: 'work',
+    }));
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue(eightHourDays);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadHolidayEntries').mockResolvedValue([]);
+
+    // Friday evening, Saturday and Sunday all report the same overtime (0h).
+    for (const now of [
+      '2025-11-14T18:00:00.000Z',
+      '2025-11-15T12:00:00.000Z',
+      '2025-11-16T12:00:00.000Z',
+    ]) {
+      vi.setSystemTime(new Date(now));
+      const summaryData = await (new SummaryManager(testConfig) as any).calculateSummaryData();
+      expect(summaryData.overtimeHours).toBe(0);
+    }
   });
 
   it('does not credit future or pre-employment leave as worked hours', async () => {
