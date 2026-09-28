@@ -194,6 +194,48 @@ describe('SummaryManager (JSON weekly summary)', () => {
     expect(result.undertime).toBe(true);
   });
 
+  it('includes leave days of blocks that started before the current week', async () => {
+    // Week of 2025-11-10 (Mon) to 2025-11-16 (Sun)
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([
+      { id: 'v1', startDate: '2025-11-05', endDate: '2025-11-11', days: 5 },
+    ]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([
+      { id: 's1', startDate: '2025-11-12', endDate: '2025-11-20', days: 9 },
+    ]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+    })) as WeeklySummaryResult;
+
+    const typeByDate = Object.fromEntries(result.rows.map((r) => [r.date, r.entryType]));
+    expect(typeByDate).toEqual({
+      '2025-11-10': 'vacation',
+      '2025-11-11': 'vacation',
+      '2025-11-12': 'sick',
+      '2025-11-13': 'sick',
+      '2025-11-14': 'sick',
+    });
+    expect(result.totalWeeklyHoursMs).toBe(40 * 3_600_000);
+  });
+
+  it('includes parental leave days of a block spanning the whole week', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([
+      { id: 'p1', startDate: '2025-10-01', endDate: '2025-12-31', days: 92 },
+    ]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+    })) as WeeklySummaryResult;
+
+    expect(result.rows.map((r) => r.entryType)).toEqual(Array(5).fill('parental'));
+    expect(result.totalWeeklyHoursMs).toBe(40 * 3_600_000);
+  });
+
   it('includes sick days in summary calculation', async () => {
     // Mock empty vacation entries and empty sick entries initially
     vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
