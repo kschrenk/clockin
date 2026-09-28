@@ -12,6 +12,19 @@ import {
   Config,
 } from './types.js';
 
+export const TIME_ENTRY_HEADER = [
+  { id: 'id', title: 'ID' },
+  { id: 'date', title: 'Date' },
+  { id: 'startTime', title: 'Start Time' },
+  { id: 'endTime', title: 'End Time' },
+  { id: 'pauseTime', title: 'Pause Time (minutes)' },
+  { id: 'type', title: 'Type' },
+  { id: 'location', title: 'Location' },
+  { id: 'description', title: 'Description' },
+];
+
+const WORK_LOCATIONS = new Set(['office', 'home']);
+
 export class DataManager {
   private config: Config;
   private readonly timeEntriesPath: string;
@@ -52,6 +65,15 @@ export class DataManager {
         .pipe(csv())
         .on('data', (data) => {
           try {
+            // Rows appended with the Location column to a file that still has the legacy
+            // header (no Location) spill over by one field: the location lands under
+            // "Description" and the description in the unnamed extra column "_7".
+            const isMisalignedLegacyRow =
+              data.Location === undefined &&
+              data.location === undefined &&
+              '_7' in data &&
+              WORK_LOCATIONS.has(data.Description);
+
             // Support both original field ids and header titles
             const entry: TimeEntry = {
               id: data.id || data.ID,
@@ -63,8 +85,12 @@ export class DataManager {
                   ? parseInt(data.pauseTime || data['Pause Time (minutes)'] || '0', 10)
                   : undefined,
               type: (data.type || data.Type) as TimeEntry['type'],
-              description: data.description || data.Description || undefined,
-              location: (data.location || data.Location || undefined) as TimeEntry['location'],
+              description: isMisalignedLegacyRow
+                ? data._7 || undefined
+                : data.description || data.Description || undefined,
+              location: (isMisalignedLegacyRow
+                ? data.Description
+                : data.location || data.Location || undefined) as TimeEntry['location'],
             };
             entries.push(entry);
           } catch (e) {
@@ -78,20 +104,12 @@ export class DataManager {
 
   async saveTimeEntry(entry: TimeEntry): Promise<void> {
     await this.ensureDataDirectory();
+    await this.migrateTimeEntriesHeader();
 
     const fileExists = await this.fileExists(this.timeEntriesPath);
     const csvWriter = createObjectCsvWriter({
       path: this.timeEntriesPath,
-      header: [
-        { id: 'id', title: 'ID' },
-        { id: 'date', title: 'Date' },
-        { id: 'startTime', title: 'Start Time' },
-        { id: 'endTime', title: 'End Time' },
-        { id: 'pauseTime', title: 'Pause Time (minutes)' },
-        { id: 'type', title: 'Type' },
-        { id: 'location', title: 'Location' },
-        { id: 'description', title: 'Description' },
-      ],
+      header: TIME_ENTRY_HEADER,
       append: fileExists,
     });
 
@@ -112,16 +130,7 @@ export class DataManager {
 
     const csvWriter = createObjectCsvWriter({
       path: this.timeEntriesPath,
-      header: [
-        { id: 'id', title: 'ID' },
-        { id: 'date', title: 'Date' },
-        { id: 'startTime', title: 'Start Time' },
-        { id: 'endTime', title: 'End Time' },
-        { id: 'pauseTime', title: 'Pause Time (minutes)' },
-        { id: 'type', title: 'Type' },
-        { id: 'location', title: 'Location' },
-        { id: 'description', title: 'Description' },
-      ],
+      header: TIME_ENTRY_HEADER,
       append: false,
     });
 
@@ -361,6 +370,22 @@ export class DataManager {
     });
 
     await csvWriter.writeRecords([entry]);
+  }
+
+  /**
+   * Rewrites time-entries.csv with the current header if it was created before a column
+   * (e.g. Location) was added. Appending to such a file would misalign the new columns.
+   */
+  private async migrateTimeEntriesHeader(): Promise<void> {
+    if (!(await this.fileExists(this.timeEntriesPath))) return;
+
+    const content = await fs.readFile(this.timeEntriesPath, 'utf-8');
+    const headerLine = content.split(/\r?\n/, 1)[0].replace(/^\uFEFF/, '');
+    const expectedHeader = TIME_ENTRY_HEADER.map((h) => h.title).join(',');
+    if (headerLine === expectedHeader) return;
+
+    const entries = await this.loadTimeEntries();
+    await this.rewriteTimeEntries(entries);
   }
 
   private async fileExists(filePath: string): Promise<boolean> {

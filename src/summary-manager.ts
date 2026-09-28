@@ -11,7 +11,7 @@ import {
   SickEntry,
   ParentalLeaveEntry,
 } from './types.js';
-import { DataManager } from './data-manager.js';
+import { DataManager, TIME_ENTRY_HEADER } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
 import { SickManager } from './sick-manager.js';
 import { HolidayManager } from './holiday-manager.js';
@@ -557,16 +557,7 @@ export class SummaryManager {
     } catch {
       const csvWriter = createObjectCsvWriter({
         path: csvPath,
-        header: [
-          { id: 'id', title: 'ID' },
-          { id: 'date', title: 'Date' },
-          { id: 'startTime', title: 'Start Time' },
-          { id: 'endTime', title: 'End Time' },
-          { id: 'pauseTime', title: 'Pause Time (minutes)' },
-          { id: 'type', title: 'Type' },
-          { id: 'location', title: 'Location' },
-          { id: 'description', title: 'Description' },
-        ],
+        header: TIME_ENTRY_HEADER,
       });
       await csvWriter.writeRecords([]);
       console.log(chalk.yellow('\ud83d\udccb Created empty time entries CSV file.'));
