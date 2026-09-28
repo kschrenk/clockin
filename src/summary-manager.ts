@@ -633,17 +633,17 @@ export class SummaryManager {
     const officeDays = [...yearWorkDayLocations.values()].filter((l) => l === 'office').length;
     const homeOfficeDays = [...yearWorkDayLocations.values()].filter((l) => l === 'home').length;
 
-    // Calendar-day entries (sick, parental): only working days contribute hours.
-    const yearSickWorkingDays = yearSickEntries.reduce(
-      (sum, e) =>
-        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
-      0
-    );
-    const yearParentalWorkingDays = yearParentalLeaveEntries.reduce(
-      (sum, e) =>
-        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
-      0
-    );
+    // Leave only contributes hours for working days that have already elapsed within the
+    // range: future (planned) leave and leave before the employment start are not credited.
+    const yearLeaveWorkingDays =
+      this.countElapsedLeaveWorkingDays(allVacationEntries, rangeStart, rangeEnd, workingDayNames) +
+      this.countElapsedLeaveWorkingDays(allSickEntries, rangeStart, rangeEnd, workingDayNames) +
+      this.countElapsedLeaveWorkingDays(
+        allParentalLeaveEntries,
+        rangeStart,
+        rangeEnd,
+        workingDayNames
+      );
 
     // Year-scoped total hours
     let totalHoursWorked = 0;
@@ -651,8 +651,7 @@ export class SummaryManager {
       if (!entry.endTime) continue;
       totalHoursWorked += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
     }
-    totalHoursWorked +=
-      (totalVacationDays + yearSickWorkingDays + yearParentalWorkingDays) * workingHoursPerDayMs;
+    totalHoursWorked += yearLeaveWorkingDays * workingHoursPerDayMs;
 
     // Year-scoped holidays (avoid double-counting with leave)
     const yearLeaveDates = this.buildLeaveDateSet(
@@ -684,19 +683,21 @@ export class SummaryManager {
       if (!entry.endTime) continue;
       allTimeHoursWorked += calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime);
     }
-    const allTimeVacDays = allVacationEntries.reduce((sum, e) => sum + e.days, 0);
-    const allTimeSickWorkingDays = allSickEntries.reduce(
-      (sum, e) =>
-        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
-      0
-    );
-    const allTimeParentalWorkingDays = allParentalLeaveEntries.reduce(
-      (sum, e) =>
-        sum + countWorkingDaysInRange(dayjs(e.startDate), dayjs(e.endDate), workingDayNames),
-      0
-    );
-    allTimeHoursWorked +=
-      (allTimeVacDays + allTimeSickWorkingDays + allTimeParentalWorkingDays) * workingHoursPerDayMs;
+    const allTimeLeaveWorkingDays =
+      this.countElapsedLeaveWorkingDays(
+        allVacationEntries,
+        employmentStartDate,
+        now,
+        workingDayNames
+      ) +
+      this.countElapsedLeaveWorkingDays(allSickEntries, employmentStartDate, now, workingDayNames) +
+      this.countElapsedLeaveWorkingDays(
+        allParentalLeaveEntries,
+        employmentStartDate,
+        now,
+        workingDayNames
+      );
+    allTimeHoursWorked += allTimeLeaveWorkingDays * workingHoursPerDayMs;
 
     const allTimeLeaveDates = this.buildLeaveDateSet(
       allVacationEntries,
@@ -771,6 +772,18 @@ export class SummaryManager {
       .filter((e) => isValidDateString(e.date))
       .sort((a, b) => dayjs(a.date).valueOf() - dayjs(b.date).valueOf());
     return sorted.length > 0 ? dayjs(sorted[0].date) : now;
+  }
+
+  private countElapsedLeaveWorkingDays(
+    entries: { startDate: string; endDate: string }[],
+    from: Dayjs,
+    to: Dayjs,
+    workingDayNames: Set<string>
+  ): number {
+    if (to.isBefore(from, 'day')) return 0;
+    return this.expandLeaveDatesInRange(entries, from, to).filter((d) =>
+      workingDayNames.has(d.format('dddd').toLowerCase())
+    ).length;
   }
 
   private buildLeaveDateSet(

@@ -665,6 +665,57 @@ describe('SummaryManager calculateSummaryData', () => {
     expect(summaryData.totalHoursWorked).toBe(5 * 8 * 3_600_000);
   });
 
+  it('does not credit future or pre-employment leave as worked hours', async () => {
+    // Friday 2025-11-14; employment started Monday 2025-11-10
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      startDate: '2025-11-10',
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    const testSummaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadHolidayEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([
+      // Before employment start: not credited
+      { id: 'v0', startDate: '2025-11-03', endDate: '2025-11-07', days: 5 },
+      // Planned for December: not credited yet
+      { id: 'v1', startDate: '2025-12-01', endDate: '2025-12-05', days: 5 },
+    ]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([
+      // Thu–next Tue: only Thu + Fri have elapsed
+      { id: 's1', startDate: '2025-11-13', endDate: '2025-11-18', days: 6 },
+    ]);
+
+    const summaryData = await (testSummaryManager as any).calculateSummaryData();
+
+    // "Used" counts keep showing booked days
+    expect(summaryData.totalVacationDays).toBe(10);
+    expect(summaryData.totalSickDays).toBe(6);
+
+    // Only the two elapsed sick working days contribute hours: 2 × 8h
+    expect(summaryData.totalHoursWorked).toBe(2 * 8 * 3_600_000);
+
+    // Overtime: 16h credited vs. expected hours up to now — booking future leave must not
+    // turn it positive.
+    expect(summaryData.overtimeHours).toBeLessThan(0);
+  });
+
   it('formatHours returns 0.0h for 0 and near-zero values (avoids -0.0h)', async () => {
     const testConfig: Config = {
       name: 'Test User',
