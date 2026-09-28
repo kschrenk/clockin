@@ -23,6 +23,14 @@ export const TIME_ENTRY_HEADER = [
   { id: 'description', title: 'Description' },
 ];
 
+const HOLIDAY_ENTRY_HEADER = [
+  { id: 'id', title: 'ID' },
+  { id: 'date', title: 'Date' },
+  { id: 'name', title: 'Name' },
+  { id: 'country', title: 'Country' },
+  { id: 'region', title: 'Region' },
+];
+
 const WORK_LOCATIONS = new Set(['office', 'home']);
 
 export class DataManager {
@@ -118,23 +126,7 @@ export class DataManager {
 
   async rewriteTimeEntries(entries: TimeEntry[]): Promise<void> {
     await this.ensureDataDirectory();
-
-    // Delete existing file
-    try {
-      await fs.unlink(this.timeEntriesPath);
-    } catch {
-      // file doesn't exist, ok
-    }
-
-    if (entries.length === 0) return;
-
-    const csvWriter = createObjectCsvWriter({
-      path: this.timeEntriesPath,
-      header: TIME_ENTRY_HEADER,
-      append: false,
-    });
-
-    await csvWriter.writeRecords(entries);
+    await this.replaceCsvFile(this.timeEntriesPath, TIME_ENTRY_HEADER, entries);
   }
 
   async loadVacationEntries(): Promise<VacationEntry[]> {
@@ -279,13 +271,7 @@ export class DataManager {
     const fileExists = await this.fileExists(this.holidayEntriesPath);
     const csvWriter = createObjectCsvWriter({
       path: this.holidayEntriesPath,
-      header: [
-        { id: 'id', title: 'ID' },
-        { id: 'date', title: 'Date' },
-        { id: 'name', title: 'Name' },
-        { id: 'country', title: 'Country' },
-        { id: 'region', title: 'Region' },
-      ],
+      header: HOLIDAY_ENTRY_HEADER,
       append: fileExists,
     });
 
@@ -294,30 +280,7 @@ export class DataManager {
 
   async rewriteHolidayEntries(entries: HolidayEntry[]): Promise<void> {
     await this.ensureDataDirectory();
-
-    // Delete existing file
-    try {
-      await fs.unlink(this.holidayEntriesPath);
-    } catch (error) {
-      // File doesn't exist, that's fine
-    }
-
-    // Write all entries at once (not appending)
-    if (entries.length > 0) {
-      const csvWriter = createObjectCsvWriter({
-        path: this.holidayEntriesPath,
-        header: [
-          { id: 'id', title: 'ID' },
-          { id: 'date', title: 'Date' },
-          { id: 'name', title: 'Name' },
-          { id: 'country', title: 'Country' },
-          { id: 'region', title: 'Region' },
-        ],
-        append: false,
-      });
-
-      await csvWriter.writeRecords(entries);
-    }
+    await this.replaceCsvFile(this.holidayEntriesPath, HOLIDAY_ENTRY_HEADER, entries);
   }
 
   async loadParentalLeaveEntries(): Promise<ParentalLeaveEntry[]> {
@@ -386,6 +349,32 @@ export class DataManager {
 
     const entries = await this.loadTimeEntries();
     await this.rewriteTimeEntries(entries);
+  }
+
+  /**
+   * Replaces a CSV file with the given records without a window where the data is gone:
+   * the new content is written to a temp file in the same directory and renamed over the
+   * original (atomic on POSIX). An empty record list removes the file.
+   */
+  private async replaceCsvFile(
+    filePath: string,
+    header: { id: string; title: string }[],
+    records: object[]
+  ): Promise<void> {
+    if (records.length === 0) {
+      await fs.rm(filePath, { force: true });
+      return;
+    }
+
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      const csvWriter = createObjectCsvWriter({ path: tempPath, header, append: false });
+      await csvWriter.writeRecords(records);
+      await fs.rename(tempPath, filePath);
+    } catch (error) {
+      await fs.rm(tempPath, { force: true });
+      throw error;
+    }
   }
 
   private async fileExists(filePath: string): Promise<boolean> {
