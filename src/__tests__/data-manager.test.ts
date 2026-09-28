@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -100,5 +100,65 @@ describe('DataManager - time-entries.csv schema migration', () => {
     const content = await fs.readFile(csvPath, 'utf-8');
     expect(content.split('\n').filter((l) => l === CURRENT_HEADER)).toHaveLength(1);
     expect((await dataManager.loadTimeEntries()).map((e) => e.id)).toEqual(['first', 'new']);
+  });
+});
+
+describe('DataManager - atomic rewrites', () => {
+  let tempDir: string;
+  let dataManager: DataManager;
+  let csvPath: string;
+
+  const entry = (id: string): TimeEntry => ({
+    id,
+    date: '2025-01-15',
+    startTime: '2025-01-15T08:00:00.000Z',
+    endTime: '2025-01-15T16:00:00.000Z',
+    pauseTime: 30,
+    type: 'work',
+    location: 'office',
+  });
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'clockin-data-'));
+    dataManager = new DataManager(buildConfig(tempDir));
+    csvPath = dataManager.getTimeEntriesPath();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('keeps the original file intact and cleans up when the rewrite fails', async () => {
+    await dataManager.saveTimeEntry(entry('a'));
+    await dataManager.saveTimeEntry(entry('b'));
+    const before = await fs.readFile(csvPath, 'utf-8');
+
+    vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(dataManager.rewriteTimeEntries([entry('a')])).rejects.toThrow('disk full');
+
+    expect(await fs.readFile(csvPath, 'utf-8')).toBe(before);
+    expect(await fs.readdir(tempDir)).toEqual(['time-entries.csv']);
+  });
+
+  it('replaces the file content on success without leaving temp files', async () => {
+    await dataManager.saveTimeEntry(entry('a'));
+    await dataManager.saveTimeEntry(entry('b'));
+
+    await dataManager.rewriteTimeEntries([{ ...entry('b'), pauseTime: 45 }]);
+
+    const entries = await dataManager.loadTimeEntries();
+    expect(entries.map((e) => [e.id, e.pauseTime])).toEqual([['b', 45]]);
+    expect(await fs.readdir(tempDir)).toEqual(['time-entries.csv']);
+  });
+
+  it('removes the file when rewriting with no entries', async () => {
+    await dataManager.saveTimeEntry(entry('a'));
+
+    await dataManager.rewriteTimeEntries([]);
+
+    expect(await dataManager.loadTimeEntries()).toEqual([]);
+    expect(await fs.readdir(tempDir)).toEqual([]);
   });
 });
