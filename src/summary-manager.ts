@@ -414,78 +414,49 @@ export class SummaryManager {
     });
   };
 
-  private getWeeklyVacationEntries = async (
-    weekStart: Dayjs,
-    weekEnd: Dayjs,
-    now?: Dayjs
-  ): Promise<Dayjs[]> => {
-    const vacationEntries = await this.dataManager.loadVacationEntries();
-    const vacationDates: Dayjs[] = [];
+  private getWeeklyVacationEntries = async (weekStart: Dayjs, weekEnd: Dayjs): Promise<Dayjs[]> =>
+    this.expandLeaveDatesInRange(await this.dataManager.loadVacationEntries(), weekStart, weekEnd);
 
-    vacationEntries.forEach((entry) => {
-      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) {
-        return;
-      }
-      const entryStartDate = dayjs(entry.startDate);
-      const entryEndDate = dayjs(entry.endDate);
-      let cursor = entryStartDate;
-      while (isDateInWeekRange(weekStart, weekEnd, cursor) && cursor.isSameOrBefore(entryEndDate)) {
-        vacationDates.push(cursor);
-        cursor = cursor.add(1, 'day');
-      }
-    });
-
-    if (now) {
-      return vacationDates.filter((date) => date.isSameOrBefore(now));
-    }
-
-    return vacationDates;
-  };
-
-  private getWeeklySickEntries = async (weekStart: Dayjs, weekEnd: Dayjs): Promise<Dayjs[]> => {
-    const sickEntries = await this.dataManager.loadSickEntries();
-    const sickDates: Dayjs[] = [];
-
-    sickEntries.forEach((entry) => {
-      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) {
-        return;
-      }
-
-      const entryStartDate = dayjs(entry.startDate);
-      const entryEndDate = dayjs(entry.endDate);
-
-      let cursor = entryStartDate;
-      while (isDateInWeekRange(weekStart, weekEnd, cursor) && cursor.isSameOrBefore(entryEndDate)) {
-        sickDates.push(cursor);
-        cursor = cursor.add(1, 'day');
-      }
-    });
-
-    return sickDates;
-  };
+  private getWeeklySickEntries = async (weekStart: Dayjs, weekEnd: Dayjs): Promise<Dayjs[]> =>
+    this.expandLeaveDatesInRange(await this.dataManager.loadSickEntries(), weekStart, weekEnd);
 
   private getWeeklyParentalLeaveEntries = async (
     weekStart: Dayjs,
     weekEnd: Dayjs
-  ): Promise<Dayjs[]> => {
-    const entries = await this.dataManager.loadParentalLeaveEntries();
+  ): Promise<Dayjs[]> =>
+    this.expandLeaveDatesInRange(
+      await this.dataManager.loadParentalLeaveEntries(),
+      weekStart,
+      weekEnd
+    );
+
+  /**
+   * Expands leave entries into the individual dates that fall within [rangeStart, rangeEnd].
+   * Entries that start before or end after the range are clipped to it.
+   */
+  private expandLeaveDatesInRange(
+    entries: { startDate: string; endDate: string }[],
+    rangeStart: Dayjs,
+    rangeEnd: Dayjs
+  ): Dayjs[] {
     const dates: Dayjs[] = [];
 
-    entries.forEach((entry) => {
-      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) return;
+    for (const entry of entries) {
+      if (!isValidDateString(entry.startDate) || !isValidDateString(entry.endDate)) continue;
 
-      const entryStartDate = dayjs(entry.startDate);
-      const entryEndDate = dayjs(entry.endDate);
+      const entryStart = dayjs(entry.startDate).startOf('day');
+      const entryEnd = dayjs(entry.endDate).startOf('day');
+      let cursor = entryStart.isBefore(rangeStart, 'day') ? rangeStart.startOf('day') : entryStart;
+      const last = entryEnd.isAfter(rangeEnd, 'day') ? rangeEnd.startOf('day') : entryEnd;
 
-      let cursor = entryStartDate;
-      while (isDateInWeekRange(weekStart, weekEnd, cursor) && cursor.isSameOrBefore(entryEndDate)) {
+      while (cursor.isSameOrBefore(last, 'day')) {
         dates.push(cursor);
         cursor = cursor.add(1, 'day');
       }
-    });
+    }
 
     return dates;
-  };
+  }
 
   async showLeaveSummary(options: { year?: number } = {}): Promise<void> {
     const targetYear = options.year ?? dayjs().year();
