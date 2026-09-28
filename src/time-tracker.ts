@@ -1,6 +1,5 @@
-import fs from 'fs/promises';
-import path from 'path';
 import chalk from 'chalk';
+import readline from 'readline';
 import {
   dayjs,
   formatInTz,
@@ -15,16 +14,15 @@ import {
 } from './date-utils.js';
 import { Config, TimeEntry, WorkSession } from './types.js';
 import { DataManager } from './data-manager.js';
+import { clearStoredSession, readCurrentSession, writeCurrentSession } from './session-store.js';
 
 export class TimeTracker {
   private config: Config;
   private dataManager: DataManager;
-  private sessionPath: string;
 
   constructor(config: Config) {
     this.config = config;
     this.dataManager = new DataManager(config);
-    this.sessionPath = path.join(config.dataDirectory, 'current-session.json');
   }
 
   async startTracking(location: 'office' | 'home' = 'office'): Promise<void> {
@@ -196,23 +194,104 @@ export class TimeTracker {
 
       console.log(chalk.magenta(`⏸️  Total Paused: ${pausedTimeFormatted}`));
 
-      if (session.isPaused) {
-        console.log(chalk.yellow('⏸️  PAUSED - Use "clockin resume" to continue tracking'));
+      if (confirmingStop) {
+        console.log(chalk.red('🛑 Stop session? Press "y" to confirm, any other key to cancel'));
+      } else if (session.isPaused) {
+        console.log(chalk.yellow('⏸️  PAUSED - Press "p" to resume | "s" to stop'));
       } else {
-        console.log(
-          chalk.gray('Use Ctrl+C to exit timer view, then "clockin stop" to finish tracking')
-        );
+        console.log(chalk.gray('Press "p" to pause | "s" to stop | Ctrl+C to exit timer view'));
       }
     };
+
+    let confirmingStop = false;
 
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
 
-    process.on('SIGINT', () => {
+    const restoreStdin = () => {
       clearInterval(interval);
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
+    };
+
+    const cleanupAndExit = () => {
+      restoreStdin();
+      process.stdin.pause();
       console.log(chalk.yellow('\n⏰ Timer view exited. Session is still active.'));
       process.exit(0);
-    });
+    };
+
+    process.on('SIGINT', cleanupAndExit);
+
+    if (process.stdin.isTTY) {
+      readline.emitKeypressEvents(process.stdin);
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+
+      let togglingPause = false;
+
+      const stopFromTimer = async () => {
+        // Hand stdin back in cooked mode so the overtime pause prompt in stopTracking() works.
+        process.stdin.off('keypress', onKeypress);
+        process.removeListener('SIGINT', cleanupAndExit);
+        restoreStdin();
+        console.clear();
+        try {
+          await this.stopTracking();
+          process.stdin.pause();
+          process.exit(0);
+        } catch (error) {
+          console.log(chalk.red('❌ Error stopping time tracking:'), error);
+          process.stdin.pause();
+          process.exit(1);
+        }
+      };
+
+      const onKeypress = (str: string, key: readline.Key) => {
+        if (key?.ctrl && key.name === 'c') {
+          cleanupAndExit();
+          return;
+        }
+
+        if (confirmingStop) {
+          confirmingStop = false;
+          if (str === 'y' || str === 'Y') {
+            void stopFromTimer();
+          } else {
+            updateTimer();
+          }
+          return;
+        }
+
+        if ((str === 's' || str === 'S') && !togglingPause) {
+          confirmingStop = true;
+          updateTimer();
+          return;
+        }
+
+        if ((str === 'p' || str === 'P') && !togglingPause) {
+          togglingPause = true;
+          const now = dayjs();
+          if (session.isPaused) {
+            if (session.pauseStartTime) {
+              session.pausedTime += getPauseDurationMs(now, session.pauseStartTime);
+            }
+            session.isPaused = false;
+            session.pauseStartTime = undefined;
+          } else {
+            session.isPaused = true;
+            session.pauseStartTime = now.toISOString();
+          }
+          void this.saveCurrentSession(session).then(() => {
+            togglingPause = false;
+            updateTimer();
+          });
+        }
+      };
+
+      process.stdin.on('keypress', onKeypress);
+    }
   }
 
   private getRegularDailyMinutes(): number {
@@ -249,9 +328,10 @@ export class TimeTracker {
 
     const suggestedPauseMinutes = this.getSuggestedPauseMinutesForSession(grossMinutes);
 
-    // Only prompt if user worked longer than their regular daily time AND the suggested pause is larger
-    // than the currently tracked pause.
-    if (suggestedPauseMinutes > 0 && (pauseTime ?? 0) < suggestedPauseMinutes) {
+    // Only prompt if the user worked longer than their regular daily time and no real pause was
+    // tracked this session (a tracked pause means the user already accounted for their break via
+    // "clockin pause"/"p" in the timer view).
+    if (suggestedPauseMinutes > 0 && (pauseTime ?? 0) === 0) {
       const inquirer = options?.inquirer ?? (await import('inquirer')).default;
 
       const { applyPause } = await inquirer.prompt([
@@ -657,37 +737,15 @@ export class TimeTracker {
   }
 
   private async getCurrentSession(): Promise<WorkSession | null> {
-    try {
-      const data = await fs.readFile(this.sessionPath, 'utf-8');
-      const session = JSON.parse(data);
-      return {
-        ...session,
-        startTime: dayjs(session.startTime).toISOString(),
-        pauseStartTime: session.pauseStartTime
-          ? dayjs(session.pauseStartTime).toISOString()
-          : undefined,
-      };
-    } catch {
-      return null;
-    }
+    return readCurrentSession(this.config);
   }
 
   private async saveCurrentSession(session: WorkSession): Promise<void> {
-    const sessionDir = path.dirname(this.sessionPath);
-    try {
-      await fs.access(sessionDir);
-    } catch {
-      await fs.mkdir(sessionDir, { recursive: true });
-    }
-    await fs.writeFile(this.sessionPath, JSON.stringify(session, null, 2));
+    await writeCurrentSession(this.config, session);
   }
 
   private async clearCurrentSession(): Promise<void> {
-    try {
-      await fs.unlink(this.sessionPath);
-    } catch {
-      // ignore
-    }
+    await clearStoredSession(this.config);
   }
 
   private getWorkingDaysCount(): number {

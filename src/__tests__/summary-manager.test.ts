@@ -85,7 +85,9 @@ describe('SummaryManager (JSON weekly summary)', () => {
 
     expect(result.weekStart).toBe('2025-11-10');
     expect(result.weekEnd).toBe('2025-11-16');
-    expect(result.rows.length).toBe(2); // Monday + Tuesday
+    // Monday + Tuesday worked, Wed/Thu/Fri placeholders for untracked working days
+    expect(result.rows.length).toBe(5);
+    expect(result.rows.filter((r) => r.hoursMs === 0).length).toBe(3);
 
     const monday = result.rows.find((r) => r.date === '2025-11-10');
     const tuesday = result.rows.find((r) => r.date === '2025-11-11');
@@ -170,10 +172,10 @@ describe('SummaryManager (JSON weekly summary)', () => {
       format: 'json',
     })) as WeeklySummaryResult;
 
-    // Rows: Monday work, Tuesday work, Wednesday vacation
-    expect(result.rows.length).toBe(3);
+    // Rows: Monday work, Tuesday work, Wednesday vacation, Thu/Fri placeholders
+    expect(result.rows.length).toBe(5);
 
-    const workRows = result.rows.filter((r) => r.entryType === 'work');
+    const workRows = result.rows.filter((r) => r.entryType === 'work' && r.hoursMs > 0);
     const vacationRows = result.rows.filter((r) => r.entryType === 'vacation');
 
     expect(workRows.length).toBe(2);
@@ -518,7 +520,6 @@ describe('SummaryManager (JSON weekly summary)', () => {
 });
 
 describe('SummaryManager calculateSummaryData', () => {
-  let summaryManager: SummaryManager;
   let testGlobalConfigDir: string;
 
   beforeEach(async () => {
@@ -790,5 +791,173 @@ describe('SummaryManager calculateSummaryData', () => {
 
     expect(summaryData.officeDays).toBe(2); // Monday + Thursday (legacy)
     expect(summaryData.homeOfficeDays).toBe(2); // Tuesday + Wednesday
+  });
+});
+
+describe('SummaryManager (weekly summary with a running session)', () => {
+  let summaryManager: SummaryManager;
+  let testGlobalConfigDir: string;
+  const sessionFile = () => `${testGlobalConfigDir}/current-session.json`;
+
+  const writeSession = async (session: Record<string, unknown>) => {
+    await fs.mkdir(testGlobalConfigDir, { recursive: true });
+    await fs.writeFile(sessionFile(), JSON.stringify(session, null, 2));
+  };
+
+  beforeEach(async () => {
+    // Fixed system time: Wednesday 12:00 UTC (13:00 Europe/Berlin)
+    vi.setSystemTime(new Date('2025-11-12T12:00:00.000Z'));
+
+    testGlobalConfigDir = process.env.CLOCKIN_CONFIG_PATH!;
+    await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
+
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: testGlobalConfigDir,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+
+    summaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadParentalLeaveEntries').mockResolvedValue([]);
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    await fs.rm(testGlobalConfigDir, { recursive: true, force: true });
+  });
+
+  const weekly = async () =>
+    (await summaryManager.showWeeklySummary({ format: 'json' })) as WeeklySummaryResult;
+
+  it('adds a running session as its own row when the day has no entries yet', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    await writeSession({
+      startTime: '2025-11-12T09:00:00.000Z',
+      pausedTime: 0,
+      isPaused: false,
+      location: 'home',
+    });
+
+    const result = await weekly();
+    const wednesday = result.rows.find((r) => r.date === '2025-11-12')!;
+
+    expect(wednesday.isRunning).toBe(true);
+    expect(wednesday.isPaused).toBe(false);
+    expect(wednesday.runningMs).toBe(3 * 3_600_000);
+    expect(wednesday.hoursMs).toBe(3 * 3_600_000);
+    expect(wednesday.end).toBeNull();
+    expect(wednesday.start).toBe('10:00');
+    expect(wednesday.location).toBe('home');
+    expect(result.totalWeeklyHoursMs).toBe(3 * 3_600_000);
+    expect(result.runningMs).toBe(3 * 3_600_000);
+  });
+
+  it('merges a running session into the day that already has completed entries', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([
+      {
+        id: '1',
+        date: '2025-11-12',
+        startTime: '2025-11-12T06:00:00.000Z',
+        endTime: '2025-11-12T08:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+        location: 'office',
+      },
+    ]);
+    await writeSession({
+      startTime: '2025-11-12T09:00:00.000Z',
+      pausedTime: 0,
+      isPaused: false,
+      location: 'home',
+    });
+
+    const result = await weekly();
+    const rows = result.rows.filter((r) => r.date === '2025-11-12');
+
+    expect(rows.length).toBe(1);
+    expect(rows[0].start).toBe('07:00'); // first completed entry wins
+    expect(rows[0].location).toBe('office');
+    expect(rows[0].hoursMs).toBe(5 * 3_600_000); // 2h completed + 3h running
+    expect(rows[0].isRunning).toBe(true);
+    expect(result.totalWeeklyHoursMs).toBe(5 * 3_600_000);
+  });
+
+  it('freezes elapsed time and reports the break while the session is paused', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    await writeSession({
+      startTime: '2025-11-12T09:00:00.000Z',
+      pausedTime: 0,
+      isPaused: true,
+      pauseStartTime: '2025-11-12T11:00:00.000Z',
+    });
+
+    const result = await weekly();
+    const wednesday = result.rows.find((r) => r.date === '2025-11-12')!;
+
+    expect(wednesday.isPaused).toBe(true);
+    expect(wednesday.hoursMs).toBe(2 * 3_600_000); // 3h elapsed - 1h paused
+    expect(wednesday.breakMinutes).toBe(60);
+  });
+
+  it('ignores a session that started outside the current week', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    await writeSession({
+      startTime: '2025-11-07T09:00:00.000Z',
+      pausedTime: 0,
+      isPaused: false,
+    });
+
+    const result = await weekly();
+
+    expect(result.rows.every((r) => !r.isRunning)).toBe(true);
+    expect(result.totalWeeklyHoursMs).toBe(0);
+    expect(result.runningMs).toBe(0);
+  });
+
+  it('pro-rates expected hours to the working days elapsed so far', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([
+      {
+        id: '1',
+        date: '2025-11-10',
+        startTime: '2025-11-10T08:00:00.000Z',
+        endTime: '2025-11-10T16:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+      },
+      {
+        id: '2',
+        date: '2025-11-11',
+        startTime: '2025-11-11T08:00:00.000Z',
+        endTime: '2025-11-11T16:00:00.000Z',
+        pauseTime: 0,
+        type: 'work',
+      },
+    ]);
+
+    const result = await weekly();
+
+    expect(result.elapsedWorkingDays).toBe(3); // Mon-Wed
+    expect(result.totalWorkingDays).toBe(5);
+    expect(result.expectedSoFarHours).toBe(24);
+    expect(result.expectedWeeklyHours).toBe(40);
+    expect(result.differenceHours).toBe(-8); // 16h worked vs 24h expected so far
+    expect(result.remainingWeekHours).toBe(24);
+    expect(result.undertime).toBe(true);
   });
 });

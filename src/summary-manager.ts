@@ -15,9 +15,13 @@ import { DataManager } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
 import { SickManager } from './sick-manager.js';
 import { HolidayManager } from './holiday-manager.js';
+import { readCurrentSession } from './session-store.js';
 import {
+  calculateCurrentPausedTimeMs,
+  calculateElapsedMs,
   calculateWorkingTime,
   countWorkingDaysInRange,
+  formatInTz,
   dayjs,
   isValidDateString,
   getWeekStart,
@@ -42,6 +46,9 @@ export interface WeeklySummaryRow {
   location?: 'office' | 'home';
   timeEntries?: TimeEntry[];
   isVacation?: boolean;
+  isRunning?: boolean;
+  isPaused?: boolean;
+  runningMs?: number;
 }
 
 export interface WeeklySummaryResult {
@@ -51,6 +58,11 @@ export interface WeeklySummaryResult {
   totalWeeklyHoursMs: number;
   totalWeeklyHoursFormatted: string;
   expectedWeeklyHours: number;
+  expectedSoFarHours: number;
+  elapsedWorkingDays: number;
+  totalWorkingDays: number;
+  remainingWeekHours: number;
+  runningMs: number;
   differenceHours: number;
   differenceFormatted: string;
   overtime: boolean;
@@ -125,11 +137,33 @@ export class SummaryManager {
     const weekStart = getWeekStart(now);
     const weekEnd = getWeekEnd(now);
 
-    const weeklyTimeEntries = await this.getWeeklyTimeEntries(weekStart, weekEnd);
-    const weeklyVacationDates = await this.getWeeklyVacationEntries(weekStart, weekEnd);
-    const weeklySickDates = await this.getWeeklySickEntries(weekStart, weekEnd);
-    const weeklyParentalLeaveDates = await this.getWeeklyParentalLeaveEntries(weekStart, weekEnd);
-    const weeklyHolidayDates = await this.holidayManager.getHolidayDates(weekStart, weekEnd);
+    const [
+      weeklyTimeEntries,
+      weeklyVacationDates,
+      weeklySickDates,
+      weeklyParentalLeaveDates,
+      weeklyHolidayDates,
+      currentSession,
+    ] = await Promise.all([
+      this.getWeeklyTimeEntries(weekStart, weekEnd),
+      this.getWeeklyVacationEntries(weekStart, weekEnd),
+      this.getWeeklySickEntries(weekStart, weekEnd),
+      this.getWeeklyParentalLeaveEntries(weekStart, weekEnd),
+      this.holidayManager.getHolidayDates(weekStart, weekEnd),
+      readCurrentSession(this.config),
+    ]);
+
+    // A running session belongs to the day it was started in (config timezone), not to "today".
+    const sessionDateKey = currentSession
+      ? formatInTz(currentSession.startTime, this.config.timezone, FORMAT_DATE)
+      : null;
+    const sessionElapsedMs = currentSession
+      ? Math.max(0, calculateElapsedMs(currentSession, now))
+      : 0;
+    const sessionBreakMinutes = currentSession
+      ? Math.round(calculateCurrentPausedTimeMs(currentSession, now) / 60_000)
+      : 0;
+
     const rows: WeeklySummaryRow[] = [];
 
     // Only iterate over configured working days within the calendar week
@@ -149,6 +183,7 @@ export class SummaryManager {
         const isSickDay = weeklySickDates.some((d) => d.isSame(cursor, 'day'));
         const isParentalLeaveDay = weeklyParentalLeaveDates.some((d) => d.isSame(cursor, 'day'));
         const isHoliday = weeklyHolidayDates.some((d) => d.isSame(cursor, 'day'));
+        const hasRunningSession = currentSession !== null && sessionDateKey === dateKey;
 
         // Handle leave days (vacation/sick/holiday)
         // Note: Overlap prevention exists in SickManager.addSickDays() and VacationManager.addVacation()
@@ -177,65 +212,21 @@ export class SummaryManager {
         const workingHoursPerDay = this.calculateWorkingHoursPerDay();
         const leaveHoursMs = dayjs.duration(workingHoursPerDay, 'hours').asMilliseconds();
 
-        switch (leaveType) {
-          case 'holiday':
-            rows.push({
-              date: dateKey,
-              displayDate,
-              start: null,
-              end: null,
-              breakMinutes: null,
-              hoursMs: leaveHoursMs,
-              hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
-              entryType: 'holiday',
-              isVacation: false,
-            });
-            break;
-
-          case 'sick':
-            rows.push({
-              date: dateKey,
-              displayDate,
-              start: null,
-              end: null,
-              breakMinutes: null,
-              hoursMs: leaveHoursMs,
-              hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
-              entryType: 'sick',
-              isVacation: false,
-            });
-            break;
-
-          case 'vacation':
-            rows.push({
-              date: dateKey,
-              displayDate,
-              start: null,
-              end: null,
-              breakMinutes: null,
-              hoursMs: leaveHoursMs,
-              hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
-              entryType: 'vacation',
-              isVacation: true,
-            });
-            break;
-
-          case 'parental':
-            rows.push({
-              date: dateKey,
-              displayDate,
-              start: null,
-              end: null,
-              breakMinutes: null,
-              hoursMs: leaveHoursMs,
-              hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
-              entryType: 'parental',
-              isVacation: false,
-            });
-            break;
+        if (leaveType) {
+          rows.push({
+            date: dateKey,
+            displayDate,
+            start: null,
+            end: null,
+            breakMinutes: null,
+            hoursMs: leaveHoursMs,
+            hoursFormatted: dayjs.duration(leaveHoursMs).format('HH:mm'),
+            entryType: leaveType,
+            isVacation: leaveType === 'vacation',
+          });
         }
 
-        if (dayTimeEntries.length > 0) {
+        if (dayTimeEntries.length > 0 || hasRunningSession) {
           // Aggregate work entries into a single row for the day
           let dailyTotalMs = 0;
           let totalBreakMinutes = 0;
@@ -246,23 +237,55 @@ export class SummaryManager {
           });
           const firstEntry = dayTimeEntries[0];
           const lastEntry = dayTimeEntries[dayTimeEntries.length - 1];
+
+          let start = firstEntry
+            ? dayjs(firstEntry.startTime).tz(this.config.timezone).format('HH:mm')
+            : null;
+          let end =
+            lastEntry && lastEntry.endTime
+              ? dayjs(lastEntry.endTime).tz(this.config.timezone).format('HH:mm')
+              : null;
+          let location = firstEntry?.location ?? (dayTimeEntries.length > 0 ? 'office' : undefined);
+
+          if (hasRunningSession && currentSession) {
+            // Fold the live session into the day's row: its elapsed time counts toward the week.
+            dailyTotalMs += sessionElapsedMs;
+            totalBreakMinutes += sessionBreakMinutes;
+            end = null;
+            if (!firstEntry) {
+              start = dayjs(currentSession.startTime).tz(this.config.timezone).format('HH:mm');
+              location = currentSession.location ?? 'office';
+            }
+          }
+
           rows.push({
             date: dateKey,
             displayDate,
-            start: firstEntry
-              ? dayjs(firstEntry.startTime).tz(this.config.timezone).format('HH:mm')
-              : null,
-            end:
-              lastEntry && lastEntry.endTime
-                ? dayjs(lastEntry.endTime).tz(this.config.timezone).format('HH:mm')
-                : null,
+            start,
+            end,
             breakMinutes: totalBreakMinutes,
             hoursMs: dailyTotalMs,
             hoursFormatted: dayjs.duration(dailyTotalMs).format('HH:mm'),
             entryType: firstEntry ? firstEntry.type : 'work',
-            location: firstEntry?.location ?? 'office',
-            timeEntries: dayTimeEntries,
+            location,
+            timeEntries: dayTimeEntries.length > 0 ? dayTimeEntries : undefined,
             isVacation: isVacationDay || false,
+            isRunning: hasRunningSession || undefined,
+            isPaused: hasRunningSession ? currentSession?.isPaused : undefined,
+            runningMs: hasRunningSession ? sessionElapsedMs : undefined,
+          });
+        } else if (!leaveType) {
+          // Working day with nothing tracked yet - keep it visible so the week's shape is readable.
+          rows.push({
+            date: dateKey,
+            displayDate,
+            start: null,
+            end: null,
+            breakMinutes: null,
+            hoursMs: 0,
+            hoursFormatted: dayjs.duration(0).format('HH:mm'),
+            entryType: 'work',
+            isVacation: false,
           });
         }
       }
@@ -272,10 +295,19 @@ export class SummaryManager {
     const totalWeeklyHoursMs = rows.reduce((sum, r) => sum + r.hoursMs, 0);
     const expectedWeeklyHours = this.config.hoursPerWeek;
     const totalWeeklyHoursFormatted = dayjs.duration(totalWeeklyHoursMs).format('HH:mm');
-    const differenceHours = totalWeeklyHoursMs / 3_600_000 - expectedWeeklyHours;
+
+    const elapsedEnd = now.isAfter(weekEnd) ? weekEnd : now;
+    const elapsedWorkingDays = countWorkingDaysInRange(weekStart, elapsedEnd, workingDayNames);
+    const totalWorkingDays = countWorkingDaysInRange(weekStart, weekEnd, workingDayNames);
+    const expectedSoFarHours = elapsedWorkingDays * this.calculateWorkingHoursPerDay();
+
+    const totalWeeklyHours = totalWeeklyHoursMs / 3_600_000;
+    const differenceHours = totalWeeklyHours - expectedSoFarHours;
     const differenceFormatted = `${differenceHours >= 0 ? '+' : ''}${differenceHours.toFixed(1)}h`;
+    const remainingWeekHours = Math.max(0, expectedWeeklyHours - totalWeeklyHours);
     const overtime = differenceHours > 0;
     const undertime = differenceHours < 0;
+    const runningMs = rows.reduce((sum, r) => sum + (r.runningMs ?? 0), 0);
 
     const result: WeeklySummaryResult = {
       weekStart: weekStart.format(FORMAT_DATE),
@@ -284,6 +316,11 @@ export class SummaryManager {
       totalWeeklyHoursMs,
       totalWeeklyHoursFormatted,
       expectedWeeklyHours,
+      expectedSoFarHours,
+      elapsedWorkingDays,
+      totalWorkingDays,
+      remainingWeekHours,
+      runningMs,
       differenceHours,
       differenceFormatted,
       overtime,
@@ -297,11 +334,11 @@ export class SummaryManager {
 
     console.log(
       chalk.blue.bold(
-        `\n\ud83d\udcc5 Weekly Summary (${weekStart.format(FORMAT_DATE_DAY)} - ${weekEnd.format(FORMAT_DATE_DAY_YEAR)})\n`
+        `\n📅 Weekly Summary (${weekStart.format(FORMAT_DATE_DAY)} - ${weekEnd.format(FORMAT_DATE_DAY_YEAR)})\n`
       )
     );
 
-    if (rows.length === 0) {
+    if (!rows.some((r) => r.hoursMs > 0)) {
       console.log(chalk.yellow('No time entries found for this week.'));
       return;
     }
@@ -316,30 +353,44 @@ export class SummaryManager {
         chalk.cyan('Location'),
         chalk.cyan('Type'),
       ],
-      colWidths: [15, 10, 10, 10, 10, 10, 15],
+      colWidths: [15, 10, 12, 10, 10, 10, 15],
     });
 
     rows.forEach((r) => {
+      const endCell = r.isRunning ? (r.isPaused ? '⏸ paused' : '▶ running') : r.end || '-';
       table.push([
         r.displayDate,
         r.start || '-',
-        r.end || '-',
+        endCell,
         r.breakMinutes !== null ? `${r.breakMinutes}m` : '-',
         r.hoursFormatted,
         r.location ? (r.location === 'office' ? 'Office' : 'Home') : '-',
-        r.entryType,
+        r.isRunning ? `${r.entryType} ⏱` : r.entryType,
       ]);
     });
 
     console.log(table.toString());
-    console.log(chalk.cyan(`\nTotal weekly hours: ${this.formatHours(totalWeeklyHoursMs)}`));
+
+    const runningSuffix =
+      runningMs > 0 ? chalk.gray(`  (incl. ${this.formatHours(runningMs)} running)`) : '';
+    console.log(
+      chalk.cyan(`\nTotal weekly hours: ${this.formatHours(totalWeeklyHoursMs)}`) + runningSuffix
+    );
+    console.log(
+      chalk.cyan(
+        `Expected so far (${elapsedWorkingDays} of ${totalWorkingDays} days): ${expectedSoFarHours.toFixed(1)}h`
+      )
+    );
     console.log(chalk.cyan(`Expected weekly hours: ${expectedWeeklyHours}h`));
+    const remainingLabel = chalk.gray(
+      `  |  Remaining this week: ${remainingWeekHours.toFixed(1)}h`
+    );
     if (overtime) {
-      console.log(chalk.green(`Overtime: ${differenceFormatted}`));
+      console.log(chalk.green(`Overtime: ${differenceFormatted}`) + remainingLabel);
     } else if (undertime) {
-      console.log(chalk.yellow(`Under time: ${differenceFormatted}`));
+      console.log(chalk.yellow(`Under time: ${differenceFormatted}`) + remainingLabel);
     } else {
-      console.log(chalk.blue('Exactly on target! \ud83c\udfaf'));
+      console.log(chalk.blue('Exactly on target! 🎯') + remainingLabel);
     }
     console.log();
   }

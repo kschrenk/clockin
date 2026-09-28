@@ -30,8 +30,8 @@
   "author": "kschrenk",
   "license": "ISC",
   "packageManager": "pnpm@10.18.3",
-  "volta": {
-    "node": "22.20.0"
+  "engines": {
+    "node": ">=22.20.0"
   },
   "dependencies": {
     "chalk": "^5.3.0",

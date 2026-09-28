@@ -17,6 +17,31 @@ A colorful, user-friendly CLI to track working hours and vacation days locally u
 - Comprehensive leave management with separate vacation and sick day tracking
 - **Accurate overtime calculation** - Based on start date, includes vacation/sick/holidays
 
+## Prerequisites
+
+Node version pinned in `.nvmrc` (currently `22.20.0`). Use [nvm](https://github.com/nvm-sh/nvm):
+
+```zsh
+# Install the pinned Node version (first time only)
+nvm install
+
+# Switch to it (reads .nvmrc automatically)
+nvm use
+```
+
+Optional: add this to your `~/.zshrc` to auto-switch when entering the project directory:
+
+```zsh
+autoload -U add-zsh-hook
+load-nvmrc() {
+  if [ -f .nvmrc ]; then
+    nvm use --silent
+  fi
+}
+add-zsh-hook chpwd load-nvmrc
+load-nvmrc
+```
+
 ## Installation
 
 Clone and build locally:
@@ -25,6 +50,12 @@ Clone and build locally:
 # Clone the repository
 git clone <repo-url> clockin
 cd clockin
+
+# Use the pinned Node version
+nvm use
+
+# Enable corepack so it picks up the pinned pnpm version (package.json "packageManager")
+corepack enable
 
 # Install dependencies (uses pnpm)
 pnpm install
@@ -200,6 +231,16 @@ clockin holidays -y 2025 --force           # Re-initialize 2025 (replaces existi
 
 Holidays are automatically counted toward your expected working hours and appear in weekly summaries. See `HOLIDAY_GUIDE.md` for detailed information.
 
+### Live Timer Shortcuts
+
+While the live timer is shown (after `clockin start` or `clockin timer`):
+
+| Key      | Action                                       |
+| -------- | -------------------------------------------- |
+| `p`      | Pause / resume tracking                      |
+| `s`      | Stop and save the session (confirm with `y`) |
+| `Ctrl+C` | Exit the timer view (session keeps running)  |
+
 ### Live Timer (Detached)
 
 If you exited the live view with Ctrl+C, **your session continues running in the background**. Ctrl+C only exits the timer display, it does NOT pause tracking. To pause tracking, use:
@@ -259,7 +300,7 @@ pnpm build
 | CSV opens in wrong app       | Change your OS default for `.csv` files                        |
 | Wrong expected end time      | Check config via `clockin setup`                               |
 | Decimal input error          | Use a dot (`.`) for decimals, e.g. `37.5` not `37,5`           |
-| Ctrl+C exits timer           | Use `clockin pause` to actually pause tracking                 |
+| Ctrl+C exits timer           | Press `p`/`s` in the timer, or use `clockin pause`/`stop`      |
 
 ## License
 
