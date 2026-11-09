@@ -26,6 +26,7 @@ import {
   isValidDateString,
   getWeekStart,
   getWeekEnd,
+  getIsoWeekStart,
   isDateInWeekRange,
   FORMAT_DATE,
   FORMAT_DATE_DAY,
@@ -54,6 +55,7 @@ export interface WeeklySummaryRow {
 export interface WeeklySummaryResult {
   weekStart: string;
   weekEnd: string;
+  weekNumber: number;
   rows: WeeklySummaryRow[];
   totalWeeklyHoursMs: number;
   totalWeeklyHoursFormatted: string;
@@ -130,12 +132,16 @@ export class SummaryManager {
   }
 
   async showWeeklySummary(
-    options: { format?: 'table' | 'json' } = {}
+    options: { format?: 'table' | 'json'; week?: number; year?: number } = {}
   ): Promise<void | WeeklySummaryResult> {
     const outputFormat = options.format || 'table';
     const now = dayjs();
-    const weekStart = getWeekStart(now);
-    const weekEnd = getWeekEnd(now);
+    const weekStart =
+      options.week !== undefined
+        ? getIsoWeekStart(options.year ?? now.isoWeekYear(), options.week)
+        : getWeekStart(now);
+    const weekEnd = getWeekEnd(weekStart);
+    const weekNumber = weekStart.isoWeek();
 
     const [
       weeklyTimeEntries,
@@ -312,6 +318,7 @@ export class SummaryManager {
     const result: WeeklySummaryResult = {
       weekStart: weekStart.format(FORMAT_DATE),
       weekEnd: weekEnd.format(FORMAT_DATE),
+      weekNumber,
       rows,
       totalWeeklyHoursMs,
       totalWeeklyHoursFormatted,
@@ -332,14 +339,16 @@ export class SummaryManager {
       return result;
     }
 
+    const startFormat =
+      weekStart.year() === weekEnd.year() ? FORMAT_DATE_DAY : FORMAT_DATE_DAY_YEAR;
     console.log(
       chalk.blue.bold(
-        `\n📅 Weekly Summary (${weekStart.format(FORMAT_DATE_DAY)} - ${weekEnd.format(FORMAT_DATE_DAY_YEAR)})\n`
+        `\n📅 Weekly Summary – Week ${weekNumber} (${weekStart.format(startFormat)} - ${weekEnd.format(FORMAT_DATE_DAY_YEAR)})\n`
       )
     );
 
     if (!rows.some((r) => r.hoursMs > 0)) {
-      console.log(chalk.yellow('No time entries found for this week.'));
+      console.log(chalk.yellow(`No time entries found for week ${weekNumber}.`));
       return;
     }
 
@@ -383,7 +392,7 @@ export class SummaryManager {
     );
     console.log(chalk.cyan(`Expected weekly hours: ${expectedWeeklyHours}h`));
     const remainingLabel = chalk.gray(
-      `  |  Remaining this week: ${remainingWeekHours.toFixed(1)}h`
+      `  |  Remaining in week ${weekNumber}: ${remainingWeekHours.toFixed(1)}h`
     );
     if (overtime) {
       console.log(chalk.green(`Overtime: ${differenceFormatted}`) + remainingLabel);

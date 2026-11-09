@@ -36,6 +36,18 @@ export function getWeekEnd(date: Dayjs): Dayjs {
   return date.endOf('isoWeek');
 }
 
+/** Number of ISO weeks (52 or 53) in the given ISO week-year. Dec 28 always falls in the last ISO week. */
+export function getIsoWeeksInYear(year: number): number {
+  return dayjs(new Date(year, 11, 28)).isoWeek();
+}
+
+/** Monday of the given ISO week. Jan 4 always falls in ISO week 1. */
+export function getIsoWeekStart(year: number, week: number): Dayjs {
+  return dayjs(new Date(year, 0, 4))
+    .isoWeek(week)
+    .startOf('isoWeek');
+}
+
 export function formatDate(date: Date | string | number, pattern: string, tz?: string): string {
   return tz ? dayjs(date).tz(tz).format(pattern) : dayjs(date).format(pattern);
 }

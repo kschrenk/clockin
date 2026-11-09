@@ -276,4 +276,51 @@ describe('SickManager', () => {
     const sickEntries = await sickManager.getSickEntries();
     expect(sickEntries.length).toBe(0);
   });
+
+  describe('removeSickEntry', () => {
+    it('removes only the matching entry and keeps the rest', async () => {
+      await sickManager.addSickDays(1, 'Cold', '2025-12-02');
+      await sickManager.addSickDays(2026, undefined, '2026-11-09');
+      await sickManager.addSickDays(1, 'Cold', '2025-12-03');
+
+      const [, bad] = await sickManager.getSickEntries();
+      const removed = await sickManager.removeSickEntry(bad.id);
+
+      expect(removed?.days).toBe(2026);
+      const remaining = await sickManager.getSickEntries();
+      expect(remaining.map((e) => e.startDate)).toEqual(['2025-12-02', '2025-12-03']);
+    });
+
+    it('returns null and leaves the file untouched for an unknown ID', async () => {
+      await sickManager.addSickDays(1, 'Cold', '2025-12-02');
+
+      expect(await sickManager.removeSickEntry('does-not-exist')).toBeNull();
+      expect(await sickManager.getSickEntries()).toHaveLength(1);
+    });
+
+    it('removes the file when the last entry is removed, so new entries still get a header', async () => {
+      await sickManager.addSickDays(1, 'Cold', '2025-12-02');
+      const [entry] = await sickManager.getSickEntries();
+
+      await sickManager.removeSickEntry(entry.id);
+      expect(await sickManager.getSickEntries()).toEqual([]);
+
+      await sickManager.addSickDays(1, 'Flu', '2025-12-10');
+      const entries = await sickManager.getSickEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].description).toBe('Flu');
+    });
+  });
+
+  describe('getSickEntriesForYear', () => {
+    it('returns entries starting in the given year, in list order', async () => {
+      await sickManager.addSickDays(1, 'A', '2025-12-02');
+      await sickManager.addSickDays(3, 'B', '2025-12-30');
+      await sickManager.addSickDays(1, 'C', '2026-02-01');
+
+      const entries2025 = await sickManager.getSickEntriesForYear(2025);
+      expect(entries2025.map((e) => e.description)).toEqual(['A', 'B']);
+      expect(await sickManager.getSickEntriesForYear(2026)).toHaveLength(1);
+    });
+  });
 });

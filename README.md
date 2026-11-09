@@ -171,6 +171,8 @@ Ends the current session, writes a row in `time-entries.csv`, and prints total w
 ```zsh
 clockin summary           # Overall summary
 clockin summary --week    # Current week summary
+clockin summary --week 42 # ISO week 42 of the current year
+clockin summary --week 1 --year 2026  # ISO week 1 of 2026
 clockin summary --csv     # Open raw CSV in default viewer
 ```
 

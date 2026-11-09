@@ -10,25 +10,47 @@ import { ConfigManager } from '../config-manager.js';
 import { SetupWizard } from '../setup-wizard.js';
 import { TimeTracker } from '../time-tracker.js';
 import { VacationManager } from '../vacation-manager.js';
-import { SickManager } from '../sick-manager.js';
+import { SickManager, formatSickDateRange } from '../sick-manager.js';
+import type { SickEntry } from '../types.js';
 import { ParentalLeaveManager } from '../parental-leave-manager.js';
 import { SummaryManager } from '../summary-manager.js';
 import { HolidayManager } from '../holiday-manager.js';
-import { dayjs } from '../date-utils.js';
+import { dayjs, getIsoWeeksInYear } from '../date-utils.js';
+import {
+  looksLikeDate,
+  normalizeDate,
+  parseDayCount,
+  parseWeekNumber,
+  resolveDescriptionAndDate,
+} from '../cli-utils.js';
 
 const program = new Command();
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Parse the <days> arg, printing an error (with a hint if it looks like a date) when invalid. */
+function parseDaysArg(days: string, usage: string): number | null {
+  const numDays = parseDayCount(days);
+  if (numDays !== null) return numDays;
 
-/** When the user omits description and passes a date as the second arg, remap it. */
-function resolveDescriptionAndDate(
-  description?: string,
-  startDate?: string
-): { description: string | undefined; startDate: string | undefined } {
-  if (startDate === undefined && description !== undefined && ISO_DATE_RE.test(description)) {
-    return { description: undefined, startDate: description };
+  if (looksLikeDate(days)) {
+    console.log(chalk.red(`❌ "${days}" looks like a date, not a number of days.`));
+    console.log(chalk.yellow(`Usage: ${usage}`));
+  } else {
+    console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
   }
-  return { description, startDate };
+  return null;
+}
+
+/**
+ * Normalize an optional start date arg to YYYY-MM-DD.
+ * Returns undefined when omitted, null (after printing an error) when invalid.
+ */
+function parseStartDateArg(startDate?: string): string | undefined | null {
+  if (startDate === undefined) return undefined;
+  const normalized = normalizeDate(startDate);
+  if (normalized === null) {
+    console.log(chalk.red(`❌ Invalid start date "${startDate}". Please use YYYY-MM-DD.`));
+  }
+  return normalized;
 }
 
 async function ensureSetup() {
@@ -147,7 +169,7 @@ program
 program
   .command('summary')
   .description('Show work summary')
-  .option('-w, --week', 'Show weekly summary')
+  .option('-w, --week [number]', 'Show weekly summary (current week, or a given ISO week number)')
   .option('-c, --csv', 'Open CSV file with time data')
   .option('-j, --json', 'Output weekly summary as JSON (use with --week)')
   .option('-l, --leaves', 'Show unified leave summary (vacation, sick, parental)')
@@ -159,26 +181,40 @@ program
 
       if (options.csv) {
         await summaryManager.openCsvFile();
-      } else if (options.week) {
+        return;
+      }
+
+      const year = options.year ? parseInt(options.year, 10) : undefined;
+      if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
+        console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
+        return;
+      }
+
+      if (options.week) {
+        let week: number | undefined;
+        if (typeof options.week === 'string') {
+          const weekYear = year ?? dayjs().isoWeekYear();
+          const parsed = parseWeekNumber(options.week, weekYear);
+          if (parsed === null) {
+            console.log(
+              chalk.red(
+                `❌ Invalid week. Please provide a week number between 1 and ${getIsoWeeksInYear(weekYear)}.`
+              )
+            );
+            return;
+          }
+          week = parsed;
+        }
+
         if (options.json) {
-          const result = await summaryManager.showWeeklySummary({ format: 'json' });
+          const result = await summaryManager.showWeeklySummary({ format: 'json', week, year });
           console.log(JSON.stringify(result, null, 2));
         } else {
-          await summaryManager.showWeeklySummary();
+          await summaryManager.showWeeklySummary({ week, year });
         }
       } else if (options.leaves) {
-        const year = options.year ? parseInt(options.year, 10) : undefined;
-        if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
-          console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
-          return;
-        }
         await summaryManager.showLeaveSummary({ year });
       } else {
-        const year = options.year ? parseInt(options.year, 10) : undefined;
-        if (year !== undefined && (isNaN(year) || year < 2000 || year > 2100)) {
-          console.log(chalk.red('❌ Invalid year. Please provide a year between 2000 and 2100.'));
-          return;
-        }
         await summaryManager.showSummary({ year });
       }
     } catch (error) {
@@ -198,17 +234,15 @@ Examples:
   clockin vacation add 5                      # Add 5 vacation days starting today
   clockin vacation add 3 2025-01-15          # Add 3 vacation days starting Jan 15th`
   )
-  .action(async (days: string, startDate?: string) => {
+  .action(async (days: string, rawStartDate?: string) => {
     try {
+      const numDays = parseDaysArg(days, 'clockin vacation add <days> [start_date]');
+      if (numDays === null) return;
+      const startDate = parseStartDateArg(rawStartDate);
+      if (startDate === null) return;
+
       const config = await ensureSetup();
       const vacationManager = new VacationManager(config);
-      const numDays = parseFloat(days);
-
-      if (isNaN(numDays) || numDays <= 0) {
-        console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
-        return;
-      }
-
       await vacationManager.addVacation(numDays, startDate);
     } catch (error) {
       console.log(chalk.red('❌ Error adding vacation:'), error);
@@ -265,17 +299,15 @@ Examples:
   )
   .action(async (days: string, rawDescription?: string, rawStartDate?: string) => {
     try {
+      const numDays = parseDaysArg(days, 'clockin sick add <days> [description] [start_date]');
+      if (numDays === null) return;
+      const resolved = resolveDescriptionAndDate(rawDescription, rawStartDate);
+      const startDate = parseStartDateArg(resolved.startDate);
+      if (startDate === null) return;
+
       const config = await ensureSetup();
       const sickManager = new SickManager(config);
-      const numDays = parseFloat(days);
-
-      if (isNaN(numDays) || numDays <= 0) {
-        console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
-        return;
-      }
-
-      const { description, startDate } = resolveDescriptionAndDate(rawDescription, rawStartDate);
-      await sickManager.addSickDays(numDays, description, startDate);
+      await sickManager.addSickDays(numDays, resolved.description, startDate);
     } catch (error) {
       console.log(chalk.red('❌ Error adding sick days:'), error);
     }
@@ -302,6 +334,92 @@ sickCommand
     }
   });
 
+sickCommand
+  .command('remove [number]')
+  .description('Remove a sick day entry (number as shown by `sick list`, prompts if omitted)')
+  .option('-y, --year <year>', 'Year the entry starts in (defaults to current year)')
+  .option('-f, --force', 'Skip confirmation prompt')
+  .addHelpText(
+    'after',
+    `
+Examples:
+  clockin sick remove                 # Pick an entry from this year interactively
+  clockin sick remove 3               # Remove entry #3 from \`clockin sick list\`
+  clockin sick remove 1 -y 2025 -f    # Remove entry #1 from 2025 without confirmation`
+  )
+  .action(async (number: string | undefined, options: { year?: string; force?: boolean }) => {
+    try {
+      const year = options.year ? parseInt(options.year, 10) : dayjs().year();
+      if (isNaN(year)) {
+        console.log(chalk.red('❌ Invalid year. Please enter a valid year (e.g. 2025).'));
+        return;
+      }
+
+      const config = await ensureSetup();
+      const sickManager = new SickManager(config);
+      const entries = await sickManager.getSickEntriesForYear(year);
+
+      if (entries.length === 0) {
+        console.log(chalk.yellow(`No sick day entries found for ${year}.`));
+        return;
+      }
+
+      const describe = (entry: SickEntry) =>
+        `${formatSickDateRange(entry)} (${entry.days} ${entry.days === 1 ? 'day' : 'days'})` +
+        (entry.description ? ` – ${entry.description}` : '');
+
+      const inquirer = (await import('inquirer')).default;
+      let entry: SickEntry;
+
+      if (number !== undefined) {
+        const index = /^\d+$/.test(number) ? parseInt(number, 10) : NaN;
+        if (isNaN(index) || index < 1 || index > entries.length) {
+          console.log(
+            chalk.red(
+              `❌ Invalid entry number "${number}". Choose 1-${entries.length} (see \`clockin sick list -y ${year}\`).`
+            )
+          );
+          return;
+        }
+        entry = entries[index - 1];
+      } else {
+        const { selected } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selected',
+            message: `Which sick day entry from ${year} do you want to remove?`,
+            choices: entries.map((e, i) => ({ name: `${i + 1}. ${describe(e)}`, value: e })),
+          },
+        ]);
+        entry = selected;
+      }
+
+      if (!options.force) {
+        const { confirm } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'confirm',
+            message: `Remove ${describe(entry)}?`,
+            default: false,
+          },
+        ]);
+        if (!confirm) {
+          console.log(chalk.yellow('Removal cancelled.'));
+          return;
+        }
+      }
+
+      const removed = await sickManager.removeSickEntry(entry.id);
+      if (!removed) {
+        console.log(chalk.red('❌ Entry not found. It may have been removed already.'));
+        return;
+      }
+      console.log(chalk.green(`🗑️  Removed sick days: ${describe(removed)}`));
+    } catch (error) {
+      console.log(chalk.red('❌ Error removing sick days:'), error);
+    }
+  });
+
 const parentalCommand = program.command('parental').description('Manage parental leave days');
 
 parentalCommand
@@ -317,17 +435,15 @@ Examples:
   )
   .action(async (days: string, rawDescription?: string, rawStartDate?: string) => {
     try {
+      const numDays = parseDaysArg(days, 'clockin parental add <days> [description] [start_date]');
+      if (numDays === null) return;
+      const resolved = resolveDescriptionAndDate(rawDescription, rawStartDate);
+      const startDate = parseStartDateArg(resolved.startDate);
+      if (startDate === null) return;
+
       const config = await ensureSetup();
       const manager = new ParentalLeaveManager(config);
-      const numDays = parseFloat(days);
-
-      if (isNaN(numDays) || numDays <= 0) {
-        console.log(chalk.red('❌ Invalid number of days. Please enter a positive number.'));
-        return;
-      }
-
-      const { description, startDate } = resolveDescriptionAndDate(rawDescription, rawStartDate);
-      await manager.addParentalLeave(numDays, description, startDate);
+      await manager.addParentalLeave(numDays, resolved.description, startDate);
     } catch (error) {
       console.log(chalk.red('❌ Error adding parental leave:'), error);
     }

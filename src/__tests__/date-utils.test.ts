@@ -4,6 +4,8 @@ import {
   calculateWorkingTime,
   getPauseDurationMs,
   calculateElapsedMs,
+  getIsoWeekStart,
+  getIsoWeeksInYear,
 } from '../date-utils.js';
 import dayjs from 'dayjs';
 import { WorkSession } from '../types.js';
@@ -144,6 +146,20 @@ describe('date-utils', () => {
       };
       const result = calculateElapsedMs(session, now);
       expect(Math.abs(result - 2700000)).toBeLessThan(1000); // 45 minutes (1h - 10min - 5min)
+    });
+  });
+
+  describe('ISO week helpers', () => {
+    it('returns the Monday of a given ISO week', () => {
+      expect(getIsoWeekStart(2025, 46).format('YYYY-MM-DD')).toBe('2025-11-10');
+      expect(getIsoWeekStart(2026, 1).format('YYYY-MM-DD')).toBe('2025-12-29');
+      expect(getIsoWeekStart(2020, 53).format('YYYY-MM-DD')).toBe('2020-12-28');
+    });
+
+    it('counts 52 or 53 ISO weeks per year', () => {
+      expect(getIsoWeeksInYear(2020)).toBe(53);
+      expect(getIsoWeeksInYear(2025)).toBe(52);
+      expect(getIsoWeeksInYear(2026)).toBe(53);
     });
   });
 });

@@ -538,6 +538,52 @@ describe('SummaryManager (JSON weekly summary)', () => {
     const formattedOvertime = (testSummaryManager as any).formatHours(summaryData.overtimeHours);
     expect(formattedOvertime).toBe('0.0h');
   });
+
+  it('returns the requested ISO week instead of the current one', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue(mockTimeEntries);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+      week: 45,
+    })) as WeeklySummaryResult;
+
+    expect(result.weekNumber).toBe(45);
+    expect(result.weekStart).toBe('2025-11-03');
+    expect(result.weekEnd).toBe('2025-11-09');
+    expect(result.totalWeeklyHoursMs).toBe(0);
+    // A past week is fully elapsed
+    expect(result.elapsedWorkingDays).toBe(result.totalWorkingDays);
+    expect(result.expectedSoFarHours).toBe(40);
+  });
+
+  it('expects no hours yet for a future week', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+      week: 48,
+    })) as WeeklySummaryResult;
+
+    expect(result.weekStart).toBe('2025-11-24');
+    expect(result.elapsedWorkingDays).toBe(0);
+    expect(result.expectedSoFarHours).toBe(0);
+  });
+
+  it('resolves the week within an explicit year', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+      week: 1,
+      year: 2026,
+    })) as WeeklySummaryResult;
+
+    expect(result.weekStart).toBe('2025-12-29');
+    expect(result.weekEnd).toBe('2026-01-04');
+  });
 });
 
 describe('SummaryManager calculateSummaryData', () => {
@@ -1078,5 +1124,22 @@ describe('SummaryManager (weekly summary with a running session)', () => {
     expect(result.differenceHours).toBe(-8); // 16h worked vs 24h expected so far
     expect(result.remainingWeekHours).toBe(24);
     expect(result.undertime).toBe(true);
+  });
+
+  it('does not fold a running session into a different requested week', async () => {
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([]);
+    await writeSession({
+      startTime: '2025-11-12T09:00:00.000Z',
+      pausedTime: 0,
+      isPaused: false,
+    });
+
+    const result = (await summaryManager.showWeeklySummary({
+      format: 'json',
+      week: 45,
+    })) as WeeklySummaryResult;
+
+    expect(result.runningMs).toBe(0);
+    expect(result.rows.some((r) => r.isRunning)).toBe(false);
   });
 });

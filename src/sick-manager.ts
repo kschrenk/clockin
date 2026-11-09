@@ -10,6 +10,14 @@ const OPERATION_NAME = 'sick days';
 const SINGLE_DAY_LABEL = 'sick day';
 const PLURAL_DAYS_LABEL = 'sick days';
 
+export function formatSickDateRange(entry: SickEntry): string {
+  const start = dayjs(entry.startDate);
+  const end = dayjs(entry.endDate);
+  return entry.startDate === entry.endDate
+    ? start.format(FORMAT_DATE_DAY_YEAR)
+    : `${start.format(FORMAT_DATE_DAY)} – ${end.format(FORMAT_DATE_DAY_YEAR)}`;
+}
+
 export class SickManager extends BaseLeaveManager {
   constructor(config: Config) {
     super(config);
@@ -108,9 +116,7 @@ export class SickManager extends BaseLeaveManager {
 
   async listSickDays(year?: number): Promise<void> {
     const targetYear = year ?? dayjs().year();
-    const allEntries = await this.dataManager.loadSickEntries();
-
-    const entries = allEntries.filter((e) => dayjs(e.startDate).year() === targetYear);
+    const entries = await this.getSickEntriesForYear(targetYear);
 
     console.log(chalk.blue.bold(`\n🤒  Sick Days Overview ${targetYear}\n`));
 
@@ -128,14 +134,12 @@ export class SickManager extends BaseLeaveManager {
       });
 
       entries.forEach((entry, i) => {
-        const start = dayjs(entry.startDate);
-        const end = dayjs(entry.endDate);
-        const dateRange =
-          entry.startDate === entry.endDate
-            ? start.format(FORMAT_DATE_DAY_YEAR)
-            : `${start.format(FORMAT_DATE_DAY)} – ${end.format(FORMAT_DATE_DAY_YEAR)}`;
-
-        table.push([String(i + 1), dateRange, String(entry.days), entry.description ?? '']);
+        table.push([
+          String(i + 1),
+          formatSickDateRange(entry),
+          String(entry.days),
+          entry.description ?? '',
+        ]);
       });
 
       console.log(table.toString());
@@ -144,6 +148,22 @@ export class SickManager extends BaseLeaveManager {
     const usedDays = entries.reduce((sum, e) => sum + e.days, 0);
     console.log(chalk.cyan(`Total sick days ${targetYear}: `) + chalk.white(`${usedDays} days`));
     console.log();
+  }
+
+  /** Entries starting in the given year, in file order — the numbering used by `sick list`. */
+  async getSickEntriesForYear(year: number): Promise<SickEntry[]> {
+    const allEntries = await this.dataManager.loadSickEntries();
+    return allEntries.filter((e) => dayjs(e.startDate).year() === year);
+  }
+
+  /** Removes the entry with the given ID. Returns the removed entry, or null if none matched. */
+  async removeSickEntry(id: string): Promise<SickEntry | null> {
+    const allEntries = await this.dataManager.loadSickEntries();
+    const removed = allEntries.find((e) => e.id === id);
+    if (!removed) return null;
+
+    await this.dataManager.rewriteSickEntries(allEntries.filter((e) => e.id !== id));
+    return removed;
   }
 
   async getTotalSickDays(): Promise<number> {

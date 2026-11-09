@@ -31,6 +31,14 @@ const HOLIDAY_ENTRY_HEADER = [
   { id: 'region', title: 'Region' },
 ];
 
+const SICK_ENTRY_HEADER = [
+  { id: 'id', title: 'ID' },
+  { id: 'startDate', title: 'Start Date' },
+  { id: 'endDate', title: 'End Date' },
+  { id: 'days', title: 'Days' },
+  { id: 'description', title: 'Description' },
+];
+
 const WORK_LOCATIONS = new Set(['office', 'home']);
 
 export class DataManager {
@@ -220,17 +228,16 @@ export class DataManager {
     const fileExists = await this.fileExists(this.sickEntriesPath);
     const csvWriter = createObjectCsvWriter({
       path: this.sickEntriesPath,
-      header: [
-        { id: 'id', title: 'ID' },
-        { id: 'startDate', title: 'Start Date' },
-        { id: 'endDate', title: 'End Date' },
-        { id: 'days', title: 'Days' },
-        { id: 'description', title: 'Description' },
-      ],
+      header: SICK_ENTRY_HEADER,
       append: fileExists,
     });
 
     await csvWriter.writeRecords([entry]);
+  }
+
+  async rewriteSickEntries(entries: SickEntry[]): Promise<void> {
+    await this.ensureDataDirectory();
+    await this.replaceCsvFile(this.sickEntriesPath, SICK_ENTRY_HEADER, entries);
   }
 
   async loadHolidayEntries(): Promise<HolidayEntry[]> {
