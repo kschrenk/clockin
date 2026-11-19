@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 
-import { Config, WorkingDay } from './types.js';
+import { Config, WorkLocation, WorkingDay } from './types.js';
 import { ConfigManager } from './config-manager.js';
 import { HolidayManager } from './holiday-manager.js';
 import { dayjs } from './date-utils.js';
@@ -164,7 +164,7 @@ export class SetupWizard {
     };
   }
 
-  private async collectDefaultWorkLocation(): Promise<'office' | 'home'> {
+  private async collectDefaultWorkLocation(): Promise<WorkLocation> {
     const { defaultWorkLocation } = await inquirer.prompt([
       {
         type: 'list',
@@ -173,6 +173,7 @@ export class SetupWizard {
         choices: [
           { name: 'Office', value: 'office' },
           { name: 'Home office', value: 'home' },
+          { name: 'Coworking space', value: 'coworking' },
         ],
         default: 'office',
       },
@@ -287,7 +288,7 @@ export class SetupWizard {
     console.log(`${chalk.cyan('Working days:')} ${workingDayNames}`);
     console.log(`${chalk.cyan('Data directory:')} ${config.dataDirectory}`);
     console.log(
-      `${chalk.cyan('Default work location:')} ${config.defaultWorkLocation === 'home' ? 'Home office' : 'Office'}`
+      `${chalk.cyan('Default work location:')} ${config.defaultWorkLocation === 'home' ? 'Home office' : config.defaultWorkLocation === 'coworking' ? 'Coworking space' : 'Office'}`
     );
   }
 }

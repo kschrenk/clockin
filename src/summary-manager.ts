@@ -10,6 +10,7 @@ import {
   VacationEntry,
   SickEntry,
   ParentalLeaveEntry,
+  WorkLocation,
 } from './types.js';
 import { DataManager, TIME_ENTRY_HEADER } from './data-manager.js';
 import { VacationManager } from './vacation-manager.js';
@@ -34,6 +35,12 @@ import {
 } from './date-utils.js';
 import { Dayjs } from 'dayjs';
 
+const WORK_LOCATION_LABELS: Record<WorkLocation, string> = {
+  office: 'Office',
+  home: 'Home',
+  coworking: 'Coworking',
+};
+
 // Exported interfaces for testability (JSON mode)
 export interface WeeklySummaryRow {
   date: string;
@@ -44,7 +51,7 @@ export interface WeeklySummaryRow {
   hoursMs: number;
   hoursFormatted: string;
   entryType: string; // work | vacation | other
-  location?: 'office' | 'home';
+  location?: WorkLocation;
   timeEntries?: TimeEntry[];
   isVacation?: boolean;
   isRunning?: boolean;
@@ -69,6 +76,25 @@ export interface WeeklySummaryResult {
   differenceFormatted: string;
   overtime: boolean;
   undertime: boolean;
+}
+
+const WORK_LOCATIONS: WorkLocation[] = ['office', 'home', 'coworking'];
+
+export interface LocationTotals {
+  location: WorkLocation;
+  days: number;
+  hoursMs: number;
+  share: number; // fraction of work days, 0..1
+}
+
+export interface LocationSummaryResult {
+  year: number;
+  startDate: string;
+  endDate: string;
+  totals: LocationTotals[];
+  totalDays: number;
+  totalHoursMs: number;
+  months: { month: string; days: Record<WorkLocation, number> }[];
 }
 
 export class SummaryManager {
@@ -115,7 +141,8 @@ export class SummaryManager {
       [`Sick Days Used (${targetYear})`, `${summaryData.totalSickDays}`],
       [`Parental Leave Days Used (${targetYear})`, `${summaryData.totalParentalLeaveDays}`],
       [`Office Days (${targetYear})`, `${summaryData.officeDays}`],
-      [`Home Office Days (${targetYear})`, `${summaryData.homeOfficeDays}`]
+      [`Home Office Days (${targetYear})`, `${summaryData.homeOfficeDays}`],
+      [`Coworking Days (${targetYear})`, `${summaryData.coworkingDays}`]
     );
 
     console.log(table.toString());
@@ -373,7 +400,7 @@ export class SummaryManager {
         endCell,
         r.breakMinutes !== null ? `${r.breakMinutes}m` : '-',
         r.hoursFormatted,
-        r.location ? (r.location === 'office' ? 'Office' : 'Home') : '-',
+        r.location ? WORK_LOCATION_LABELS[r.location] : '-',
         r.isRunning ? `${r.entryType} ⏱` : r.entryType,
       ]);
     });
@@ -465,6 +492,101 @@ export class SummaryManager {
     }
 
     return dates;
+  }
+
+  async showLocationSummary(
+    options: { year?: number; format?: 'table' | 'json' } = {}
+  ): Promise<void | LocationSummaryResult> {
+    const now = dayjs();
+    const targetYear = options.year ?? now.year();
+    const rangeStart = dayjs(`${targetYear}-01-01`).startOf('day');
+    const rangeEnd = targetYear === now.year() ? now : dayjs(`${targetYear}-12-31`).endOf('day');
+
+    const timeEntries = (await this.dataManager.loadTimeEntries()).filter((e) => {
+      if (!isValidDateString(e.date)) return false;
+      const d = dayjs(e.date);
+      return !d.isBefore(rangeStart, 'day') && d.isSameOrBefore(rangeEnd, 'day');
+    });
+
+    const workDays = this.groupWorkDaysByLocation(timeEntries);
+    const totalDays = workDays.size;
+    let totalHoursMs = 0;
+    const byLocation = new Map<WorkLocation, { days: number; hoursMs: number }>(
+      WORK_LOCATIONS.map((l) => [l, { days: 0, hoursMs: 0 }])
+    );
+    const byMonth = new Map<string, Record<WorkLocation, number>>();
+
+    for (const [date, { location, hoursMs }] of [...workDays.entries()].sort(([a], [b]) =>
+      a.localeCompare(b)
+    )) {
+      totalHoursMs += hoursMs;
+      const loc = byLocation.get(location)!;
+      loc.days += 1;
+      loc.hoursMs += hoursMs;
+
+      const month = dayjs(date).format('YYYY-MM');
+      const monthCounts = byMonth.get(month) ?? { office: 0, home: 0, coworking: 0 };
+      monthCounts[location] += 1;
+      byMonth.set(month, monthCounts);
+    }
+
+    const result: LocationSummaryResult = {
+      year: targetYear,
+      startDate: rangeStart.format(FORMAT_DATE),
+      endDate: rangeEnd.format(FORMAT_DATE),
+      totals: WORK_LOCATIONS.map((location) => {
+        const { days, hoursMs } = byLocation.get(location)!;
+        return { location, days, hoursMs, share: totalDays > 0 ? days / totalDays : 0 };
+      }),
+      totalDays,
+      totalHoursMs,
+      months: [...byMonth.entries()].map(([month, days]) => ({ month, days })),
+    };
+
+    if (options.format === 'json') return result;
+
+    console.log(chalk.blue.bold(`\n📍 Work Locations ${targetYear}\n`));
+
+    if (totalDays === 0) {
+      console.log(chalk.yellow(`No work days tracked for ${targetYear}.\n`));
+      return;
+    }
+
+    const totalsTable = new Table({
+      head: [chalk.cyan('Location'), chalk.cyan('Days'), chalk.cyan('Share'), chalk.cyan('Hours')],
+      colWidths: [14, 8, 9, 12],
+    });
+    for (const t of result.totals) {
+      totalsTable.push([
+        WORK_LOCATION_LABELS[t.location],
+        `${t.days}`,
+        `${Math.round(t.share * 100)}%`,
+        this.formatHours(t.hoursMs),
+      ]);
+    }
+    totalsTable.push([
+      chalk.bold('Total'),
+      chalk.bold(`${totalDays}`),
+      '',
+      chalk.bold(this.formatHours(totalHoursMs)),
+    ]);
+    console.log(totalsTable.toString());
+
+    const monthTable = new Table({
+      head: [
+        chalk.cyan('Month'),
+        ...WORK_LOCATIONS.map((l) => chalk.cyan(WORK_LOCATION_LABELS[l])),
+      ],
+      colWidths: [10, 10, 10, 12],
+    });
+    for (const m of result.months) {
+      monthTable.push([
+        dayjs(`${m.month}-01`).format('MMM'),
+        ...WORK_LOCATIONS.map((l) => `${m.days[l]}`),
+      ]);
+    }
+    console.log(monthTable.toString());
+    console.log();
   }
 
   async showLeaveSummary(options: { year?: number } = {}): Promise<void> {
@@ -631,16 +753,12 @@ export class SummaryManager {
     const totalSickDays = yearSickEntries.reduce((sum, e) => sum + e.days, 0);
     const totalParentalLeaveDays = yearParentalLeaveEntries.reduce((sum, e) => sum + e.days, 0);
 
-    // Group completed work entries by day so a day with multiple entries only counts once.
-    const yearWorkDayLocations = new Map<string, 'office' | 'home'>();
-    for (const entry of yearTimeEntries) {
-      if (entry.type !== 'work' || !entry.endTime) continue;
-      if (!yearWorkDayLocations.has(entry.date)) {
-        yearWorkDayLocations.set(entry.date, entry.location ?? 'office');
-      }
-    }
-    const officeDays = [...yearWorkDayLocations.values()].filter((l) => l === 'office').length;
-    const homeOfficeDays = [...yearWorkDayLocations.values()].filter((l) => l === 'home').length;
+    const yearWorkDayLocations = [...this.groupWorkDaysByLocation(yearTimeEntries).values()].map(
+      (d) => d.location
+    );
+    const officeDays = yearWorkDayLocations.filter((l) => l === 'office').length;
+    const homeOfficeDays = yearWorkDayLocations.filter((l) => l === 'home').length;
+    const coworkingDays = yearWorkDayLocations.filter((l) => l === 'coworking').length;
 
     // Leave only contributes hours for working days that have already elapsed within the
     // range: future (planned) leave and leave before the employment start are not credited.
@@ -767,6 +885,7 @@ export class SummaryManager {
       totalParentalLeaveDays,
       officeDays,
       homeOfficeDays,
+      coworkingDays,
       remainingVacationDays,
       expectedHoursPerWeek: this.config.hoursPerWeek,
       currentWeekHours,
@@ -775,6 +894,27 @@ export class SummaryManager {
       endDate: rangeEnd.format(FORMAT_DATE),
       firstTrackedYear,
     };
+  }
+
+  /**
+   * Group completed work entries by day so a day with multiple entries only counts once.
+   * A day's location is its first entry's location (legacy entries without one count as office).
+   */
+  private groupWorkDaysByLocation(
+    entries: TimeEntry[]
+  ): Map<string, { location: WorkLocation; hoursMs: number }> {
+    const days = new Map<string, { location: WorkLocation; hoursMs: number }>();
+    for (const entry of entries) {
+      if (entry.type !== 'work' || !entry.endTime) continue;
+      const ms = Math.max(0, calculateWorkingTime(entry.startTime, entry.endTime, entry.pauseTime));
+      const day = days.get(entry.date);
+      if (day) {
+        day.hoursMs += ms;
+      } else {
+        days.set(entry.date, { location: entry.location ?? 'office', hoursMs: ms });
+      }
+    }
+    return days;
   }
 
   private resolveEmploymentStartDate(timeEntries: TimeEntry[], now: Dayjs): Dayjs {

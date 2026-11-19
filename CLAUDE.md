@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm build          # Compile TypeScript → dist/
-pnpm dev -- <cmd>   # Run a command in dev mode (e.g. pnpm dev -- start)
+pnpm dev <cmd>      # Run a command in dev mode (e.g. pnpm dev summary --week); no `--` separator, or options are ignored
 pnpm test           # Run tests once
 pnpm test:watch     # Run tests in watch mode
 pnpm lint           # ESLint check

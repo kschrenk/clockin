@@ -39,7 +39,7 @@ const SICK_ENTRY_HEADER = [
   { id: 'description', title: 'Description' },
 ];
 
-const WORK_LOCATIONS = new Set(['office', 'home']);
+const WORK_LOCATIONS = new Set(['office', 'home', 'coworking']);
 
 export class DataManager {
   private config: Config;

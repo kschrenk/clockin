@@ -11,7 +11,7 @@ import { SetupWizard } from '../setup-wizard.js';
 import { TimeTracker } from '../time-tracker.js';
 import { VacationManager } from '../vacation-manager.js';
 import { SickManager, formatSickDateRange } from '../sick-manager.js';
-import type { SickEntry } from '../types.js';
+import type { SickEntry, WorkLocation } from '../types.js';
 import { ParentalLeaveManager } from '../parental-leave-manager.js';
 import { SummaryManager } from '../summary-manager.js';
 import { HolidayManager } from '../holiday-manager.js';
@@ -44,6 +44,21 @@ function parseDaysArg(days: string, usage: string): number | null {
  * Normalize an optional start date arg to YYYY-MM-DD.
  * Returns undefined when omitted, null (after printing an error) when invalid.
  */
+type LocationFlags = { home?: boolean; office?: boolean; coworking?: boolean };
+
+/**
+ * Resolve --home/--office/--coworking to a location.
+ * Returns undefined when no flag is set, or null (after printing an error) when several are set.
+ */
+function resolveLocationFlag(options?: LocationFlags): WorkLocation | undefined | null {
+  const selected = (['home', 'office', 'coworking'] as const).filter((loc) => options?.[loc]);
+  if (selected.length > 1) {
+    console.log(chalk.red('❌ Use only one of --home, --office, --coworking.'));
+    return null;
+  }
+  return selected[0];
+}
+
 function parseStartDateArg(startDate?: string): string | undefined | null {
   if (startDate === undefined) return undefined;
   const normalized = normalizeDate(startDate);
@@ -76,20 +91,17 @@ program
   .description('Start tracking time')
   .option('--home', 'Track this session as home office')
   .option('--office', 'Track this session as office')
-  .action(async (options: { home?: boolean; office?: boolean }) => {
+  .option('--coworking', 'Track this session as coworking')
+  .action(async (options: LocationFlags) => {
     try {
-      if (options.home && options.office) {
-        console.log(chalk.red('❌ Cannot use --home and --office together.'));
-        return;
-      }
+      const locationFlag = resolveLocationFlag(options);
+      if (locationFlag === null) return;
 
       const config = await ensureSetup();
 
-      let location: 'office' | 'home';
-      if (options.home) {
-        location = 'home';
-      } else if (options.office) {
-        location = 'office';
+      let location: WorkLocation;
+      if (locationFlag) {
+        location = locationFlag;
       } else if (config.defaultWorkLocation) {
         location = config.defaultWorkLocation;
       } else {
@@ -102,6 +114,7 @@ program
             choices: [
               { name: 'Office', value: 'office' },
               { name: 'Home office', value: 'home' },
+              { name: 'Coworking space', value: 'coworking' },
             ],
           },
           {
@@ -171,8 +184,9 @@ program
   .description('Show work summary')
   .option('-w, --week [number]', 'Show weekly summary (current week, or a given ISO week number)')
   .option('-c, --csv', 'Open CSV file with time data')
-  .option('-j, --json', 'Output weekly summary as JSON (use with --week)')
+  .option('-j, --json', 'Output summary as JSON (use with --week or --locations)')
   .option('-l, --leaves', 'Show unified leave summary (vacation, sick, parental)')
+  .option('--locations', 'Show workdays by location (office, home, coworking)')
   .option('-y, --year <year>', 'Show summary for a specific year (defaults to current year)')
   .action(async (options) => {
     try {
@@ -211,6 +225,13 @@ program
           console.log(JSON.stringify(result, null, 2));
         } else {
           await summaryManager.showWeeklySummary({ week, year });
+        }
+      } else if (options.locations) {
+        if (options.json) {
+          const result = await summaryManager.showLocationSummary({ format: 'json', year });
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          await summaryManager.showLocationSummary({ year });
         }
       } else if (options.leaves) {
         await summaryManager.showLeaveSummary({ year });
@@ -557,6 +578,7 @@ program
   .option('-p, --pause <minutes>', 'Pause time in minutes', '0')
   .option('--home', 'Mark this entry as home office')
   .option('--office', 'Mark this entry as office')
+  .option('--coworking', 'Mark this entry as coworking')
   .addHelpText(
     'after',
     `
@@ -566,6 +588,7 @@ Examples:
   clockin add 2025-01-14 09:00 17:30 -p 30              # Add with 30 minutes pause
   clockin add 2025-01-14 09:00 17:30 "Meeting day" -p 45 # Add with description and pause
   clockin add 2025-01-14 09:00 17:30 --home             # Add as home office
+  clockin add 2025-01-14 09:00 17:30 --coworking        # Add as coworking
 `
   )
   .action(
@@ -574,13 +597,11 @@ Examples:
       startTime: string,
       endTime: string,
       description?: string,
-      options?: { pause?: string; home?: boolean; office?: boolean }
+      options?: { pause?: string } & LocationFlags
     ) => {
       try {
-        if (options?.home && options?.office) {
-          console.log(chalk.red('❌ Cannot use --home and --office together.'));
-          return;
-        }
+        const locationFlag = resolveLocationFlag(options);
+        if (locationFlag === null) return;
 
         const config = await ensureSetup();
         const timeTracker = new TimeTracker(config);
@@ -592,11 +613,7 @@ Examples:
           return;
         }
 
-        const location: 'office' | 'home' = options?.home
-          ? 'home'
-          : options?.office
-            ? 'office'
-            : config.defaultWorkLocation ?? 'office';
+        const location: WorkLocation = locationFlag ?? config.defaultWorkLocation ?? 'office';
 
         await timeTracker.addTimeEntry(
           date,

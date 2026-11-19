@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SummaryManager, WeeklySummaryResult } from '../summary-manager.js';
+import { SummaryManager, WeeklySummaryResult, LocationSummaryResult } from '../summary-manager.js';
 import { Config, TimeEntry, VacationEntry } from '../types.js';
 import fs from 'fs/promises';
 import { DataManager } from '../data-manager';
@@ -947,6 +947,16 @@ describe('SummaryManager calculateSummaryData', () => {
         pauseTime: 60,
         type: 'work',
       },
+      // Friday: coworking
+      {
+        id: '6',
+        date: '2025-11-14',
+        startTime: '2025-11-14T09:00:00.000Z',
+        endTime: '2025-11-14T17:00:00.000Z',
+        pauseTime: 60,
+        type: 'work',
+        location: 'coworking',
+      },
     ]);
     vi.spyOn(DataManager.prototype, 'loadVacationEntries').mockResolvedValue([]);
     vi.spyOn(DataManager.prototype, 'loadSickEntries').mockResolvedValue([]);
@@ -956,6 +966,7 @@ describe('SummaryManager calculateSummaryData', () => {
 
     expect(summaryData.officeDays).toBe(2); // Monday + Thursday (legacy)
     expect(summaryData.homeOfficeDays).toBe(2); // Tuesday + Wednesday
+    expect(summaryData.coworkingDays).toBe(1); // Friday
   });
 });
 
@@ -1141,5 +1152,111 @@ describe('SummaryManager (weekly summary with a running session)', () => {
 
     expect(result.runningMs).toBe(0);
     expect(result.rows.some((r) => r.isRunning)).toBe(false);
+  });
+});
+
+describe('SummaryManager showLocationSummary', () => {
+  const H = 3_600_000;
+  let summaryManager: SummaryManager;
+
+  const work = (
+    id: string,
+    date: string,
+    start: string,
+    end: string | undefined,
+    pauseTime: number,
+    location?: TimeEntry['location'],
+    type: TimeEntry['type'] = 'work'
+  ): TimeEntry => ({
+    id,
+    date,
+    startTime: `${date}T${start}:00.000Z`,
+    endTime: end ? `${date}T${end}:00.000Z` : undefined,
+    pauseTime,
+    type,
+    location,
+  });
+
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2025-11-14T23:59:59.999Z'));
+    const testConfig: Config = {
+      name: 'Test User',
+      hoursPerWeek: 40,
+      vacationDaysPerYear: 25,
+      workingDays: [
+        { day: 'monday', isWorkingDay: true },
+        { day: 'tuesday', isWorkingDay: true },
+        { day: 'wednesday', isWorkingDay: true },
+        { day: 'thursday', isWorkingDay: true },
+        { day: 'friday', isWorkingDay: true },
+        { day: 'saturday', isWorkingDay: false },
+        { day: 'sunday', isWorkingDay: false },
+      ],
+      dataDirectory: process.env.CLOCKIN_CONFIG_PATH!,
+      setupCompleted: true,
+      timezone: 'Europe/Berlin',
+    };
+    summaryManager = new SummaryManager(testConfig);
+
+    vi.spyOn(DataManager.prototype, 'loadTimeEntries').mockResolvedValue([
+      // Previous year: excluded
+      work('0', '2024-12-30', '09:00', '17:00', 60, 'home'),
+      // October: office 7h
+      work('1', '2025-10-06', '09:00', '17:00', 60, 'office'),
+      // November: home with two entries on one day (3h + 4h), counts once
+      work('2', '2025-11-11', '09:00', '12:00', 0, 'home'),
+      work('3', '2025-11-11', '13:00', '17:00', 0, 'home'),
+      // November: legacy entry without location -> office, 7h
+      work('4', '2025-11-12', '09:00', '17:00', 60),
+      // November: coworking 8h
+      work('5', '2025-11-13', '09:00', '17:00', 0, 'coworking'),
+      // Running entry (no end time): excluded
+      work('6', '2025-11-14', '09:00', undefined, 0, 'coworking'),
+      // Vacation-type entry: excluded
+      work('7', '2025-11-10', '09:00', '17:00', 0, 'home', 'vacation'),
+    ]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('aggregates days, hours and share per location', async () => {
+    const result = (await summaryManager.showLocationSummary({
+      format: 'json',
+      year: 2025,
+    })) as LocationSummaryResult;
+
+    expect(result.totalDays).toBe(4);
+    expect(result.totalHoursMs).toBe(29 * H);
+    expect(result.totals).toEqual([
+      { location: 'office', days: 2, hoursMs: 14 * H, share: 0.5 },
+      { location: 'home', days: 1, hoursMs: 7 * H, share: 0.25 },
+      { location: 'coworking', days: 1, hoursMs: 8 * H, share: 0.25 },
+    ]);
+  });
+
+  it('breaks workdays down by month in calendar order', async () => {
+    const result = (await summaryManager.showLocationSummary({
+      format: 'json',
+      year: 2025,
+    })) as LocationSummaryResult;
+
+    expect(result.months).toEqual([
+      { month: '2025-10', days: { office: 1, home: 0, coworking: 0 } },
+      { month: '2025-11', days: { office: 1, home: 1, coworking: 1 } },
+    ]);
+  });
+
+  it('only includes the requested year', async () => {
+    const result = (await summaryManager.showLocationSummary({
+      format: 'json',
+      year: 2024,
+    })) as LocationSummaryResult;
+
+    expect(result.totalDays).toBe(1);
+    expect(result.totals.find((t) => t.location === 'home')?.days).toBe(1);
+    expect(result.endDate).toBe('2024-12-31');
   });
 });

@@ -307,6 +307,13 @@ describe('TimeTracker - Manual Time Entry', () => {
       const timeEntries = await dataManager.loadTimeEntries();
       expect(timeEntries[0].location).toBe('home');
     });
+
+    it('respects an explicit coworking location', async () => {
+      await timeTracker.addTimeEntry('2025-01-14', '09:00', '17:00', undefined, 0, 'coworking');
+
+      const timeEntries = await dataManager.loadTimeEntries();
+      expect(timeEntries[0].location).toBe('coworking');
+    });
   });
 
   describe('Edge Cases', () => {

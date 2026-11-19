@@ -12,7 +12,7 @@ import {
   calculateElapsedMs,
   calculateCurrentPausedTimeMs,
 } from './date-utils.js';
-import { Config, TimeEntry, WorkSession } from './types.js';
+import { Config, TimeEntry, WorkLocation, WorkSession } from './types.js';
 import { DataManager } from './data-manager.js';
 import { clearStoredSession, readCurrentSession, writeCurrentSession } from './session-store.js';
 
@@ -25,7 +25,7 @@ export class TimeTracker {
     this.dataManager = new DataManager(config);
   }
 
-  async startTracking(location: 'office' | 'home' = 'office'): Promise<void> {
+  async startTracking(location: WorkLocation = 'office'): Promise<void> {
     const existingSession = await this.getCurrentSession();
     if (existingSession) {
       console.log(chalk.yellow('\u26a0\ufe0f  A tracking session is already active!'));
@@ -175,7 +175,12 @@ export class TimeTracker {
       );
       const endTime = dayjs(expectedEndTimeDate).tz(this.config.timezone).format(FORMAT_TIME);
 
-      const locationLabel = session.location === 'home' ? '🏠 Home' : '🏢 Office';
+      const locationLabel =
+        session.location === 'home'
+          ? '🏠 Home'
+          : session.location === 'coworking'
+            ? '👥 Coworking'
+            : '🏢 Office';
 
       console.log(chalk.blue.bold(`📅 ${now.format('dddd, MMMM Do, YYYY')} | ${locationLabel}`));
       console.log(
@@ -405,7 +410,7 @@ export class TimeTracker {
     endTimeString: string,
     description?: string,
     pauseTimeMinutes: number = 0,
-    location: 'office' | 'home' = 'office'
+    location: WorkLocation = 'office'
   ): Promise<void> {
     // Validate date format
     if (!isValidDateString(dateString)) {

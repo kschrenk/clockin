@@ -1,3 +1,5 @@
+export type WorkLocation = 'office' | 'home' | 'coworking';
+
 export interface Config {
   name: string;
   hoursPerWeek: number;
@@ -7,7 +9,7 @@ export interface Config {
   timezone: string;
   setupCompleted: boolean;
   startDate?: string; // ISO date string - first day of work for accurate overtime calculations
-  defaultWorkLocation?: 'office' | 'home';
+  defaultWorkLocation?: WorkLocation;
 }
 
 export interface WorkingDay {
@@ -23,7 +25,7 @@ export interface TimeEntry {
   pauseTime?: number; // minutes paused
   type: 'work' | 'vacation';
   description?: string;
-  location?: 'office' | 'home';
+  location?: WorkLocation;
 }
 
 export interface VacationEntry {
@@ -63,7 +65,7 @@ export interface WorkSession {
   pausedTime: number; // total paused time in milliseconds
   isPaused: boolean;
   pauseStartTime?: string; // ISO datetime string
-  location?: 'office' | 'home';
+  location?: WorkLocation;
 }
 
 export interface SummaryData {
@@ -73,6 +75,7 @@ export interface SummaryData {
   totalParentalLeaveDays: number;
   officeDays: number;
   homeOfficeDays: number;
+  coworkingDays: number;
   remainingVacationDays: number;
   expectedHoursPerWeek: number;
   currentWeekHours: number;

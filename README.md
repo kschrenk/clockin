@@ -84,9 +84,9 @@ source ~/.zshrc
 During development, you can run the entrypoint with tsx:
 
 ```zsh
-pnpm dev -- <command> [options]
+pnpm dev <command> [options]
 # Example
-pnpm dev -- start
+pnpm dev summary --week
 ```
 
 ## Setup (First Run)
